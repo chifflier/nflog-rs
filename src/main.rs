@@ -19,8 +19,7 @@ fn hello_rust(payload: &nflog::Payload) {
     }
     println!("{}", s);
 
-    // XXX segfaults later :(
-    //println!("XML\n{}", payload.as_xml_str(nflog::NFLOG_XML_ALL).unwrap());
+    println!("XML\n{}", payload.as_xml_str(nflog::NFLOG_XML_ALL).unwrap());
 
 }
 

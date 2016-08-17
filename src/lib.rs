@@ -283,7 +283,7 @@ impl Payload {
     // return the log prefix as configured using --nflog-prefix "..."
     pub fn get_prefix(&self) -> Result<String,std::str::Utf8Error> {
         let c_buf: *const libc::c_char = unsafe { nflog_get_prefix(self.nfad) };
-        let c_str = unsafe { std::ffi::CString::from_raw(c_buf as *mut i8) };
+        let c_str = unsafe { std::ffi::CStr::from_ptr(c_buf) };
         match c_str.to_str() {
             Err(e) => Err(e),
             Ok(v)  => Ok(v.to_string()),
