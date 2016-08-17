@@ -1,12 +1,12 @@
 extern crate libc;
 
-type NflogHandle = *mut libc::c_void;
-type NflogGroupHandle = *mut libc::c_void;
+type NflogHandle = *const libc::c_void;
+type NflogGroupHandle = *const libc::c_void;
 
-pub type NflogCallback = fn (&mut Payload) -> ();
+pub type NflogCallback = fn (&Payload) -> ();
 
-type NflogData = *mut libc::c_void;
-type NflogCCallback = extern "C" fn (*mut libc::c_void, *mut libc::c_void, *mut libc::c_void, *mut libc::c_void );
+type NflogData = *const libc::c_void;
+type NflogCCallback = extern "C" fn (*const libc::c_void, *const libc::c_void, *const libc::c_void, *const libc::c_void );
 
 #[link(name = "netfilter_log")]
 extern {
@@ -27,7 +27,7 @@ extern {
     fn nflog_set_flags (gh: NflogGroupHandle, flags: u16) -> libc::c_int;
 
     // message parsing functions
-    fn nflog_get_msg_packet_hdr(nfad: NflogData) -> *mut libc::c_void;
+    fn nflog_get_msg_packet_hdr(nfad: NflogData) -> *const libc::c_void;
     fn nflog_get_hwtype (nfad: NflogData) -> u16;
 
     fn nflog_get_nfmark (nfad: NflogData) -> u32;
@@ -79,7 +79,7 @@ pub struct Log {
 pub struct Payload {
     //q    : NflogHandle,
     //g    : NflogGroupHandle,
-    nfad : *mut libc::c_void,
+    nfad : NflogData,
 }
 
 
@@ -98,9 +98,7 @@ impl Log {
     }
 
     pub fn open(&mut self) {
-        let q = unsafe { nflog_open() };
-
-        self.q = q;
+        self.q = unsafe { nflog_open() };
     }
 
     pub fn close(&mut self) {
@@ -109,27 +107,27 @@ impl Log {
     }
 
     // requires root privileges
-    pub fn bind(&mut self, pf: libc::c_int) -> i32 {
+    pub fn bind(&self, pf: libc::c_int) -> i32 {
         assert!(!self.q.is_null());
-        unsafe { return nflog_bind_pf(self.q,pf); };
+        return unsafe { nflog_bind_pf(self.q,pf) };
     }
 
     // requires root privileges
-    pub fn unbind(&mut self, pf: libc::c_int) -> i32 {
+    pub fn unbind(&self, pf: libc::c_int) -> i32 {
         assert!(!self.q.is_null());
-        unsafe { return nflog_unbind_pf(self.q,pf); }
+        return unsafe { nflog_unbind_pf(self.q,pf) }
     }
 
     // requires root privileges
-    pub fn fd(&mut self) -> i32 {
+    pub fn fd(&self) -> i32 {
         assert!(!self.q.is_null());
-        unsafe { return nflog_fd(self.q); }
+        return unsafe { nflog_fd(self.q) }
     }
 
     // requires root privileges
     pub fn bind_group(&mut self, num: u16) {
         assert!(!self.q.is_null());
-        unsafe { self.g = nflog_bind_group(self.q,num); }
+        self.g = unsafe { nflog_bind_group(self.q,num) }
     }
 
     // requires root privileges
@@ -140,31 +138,31 @@ impl Log {
     }
 
     // requires root privileges
-    pub fn set_mode(&mut self, mode: u8, range: u32) {
+    pub fn set_mode(&self, mode: u8, range: u32) {
         assert!(!self.g.is_null());
         unsafe { nflog_set_mode(self.g, mode, range); }
     }
 
     // requires root privileges
-    pub fn set_timeout(&mut self, timeout: u32) {
+    pub fn set_timeout(&self, timeout: u32) {
         assert!(!self.g.is_null());
         unsafe { nflog_set_timeout(self.g, timeout); }
     }
 
     // requires root privileges
-    pub fn set_qthresh(&mut self, qthresh: u32) {
+    pub fn set_qthresh(&self, qthresh: u32) {
         assert!(!self.g.is_null());
         unsafe { nflog_set_qthresh(self.g, qthresh); }
     }
 
     // requires root privileges
-    pub fn set_nlbufsiz(&mut self, nlbufsiz: u32) {
+    pub fn set_nlbufsiz(&self, nlbufsiz: u32) {
         assert!(!self.g.is_null());
         unsafe { nflog_set_nlbufsiz(self.g, nlbufsiz); }
     }
 
     // requires root privileges
-    pub fn set_flags(&mut self, flags: u16) {
+    pub fn set_flags(&self, flags: u16) {
         assert!(!self.g.is_null());
         unsafe { nflog_set_flags(self.g, flags); }
     }
@@ -174,17 +172,15 @@ impl Log {
     pub fn set_callback(&mut self, cb: NflogCallback) {
         println!("cb: {:p}", cb as *const());
         self.cb = Some(cb);
-        let self_ptr;
-        unsafe { self_ptr = std::mem::transmute(&*self); };
+        let self_ptr = unsafe { std::mem::transmute(&*self) };
         println!("self_ptr: {:p}", self_ptr);
         unsafe {
             println!("nflog_callback_register: {:p}", real_callback as *const());
             nflog_callback_register(self.g, real_callback, self_ptr);
-            //nflog_callback_register(self.g, real_callback, std::ptr::null_mut());
         }
     }
 
-    pub fn run_loop(&mut self) {
+    pub fn run_loop(&self) {
         assert!(!self.g.is_null());
         println!("self: {:p}", self as * const _);
 
@@ -216,7 +212,7 @@ impl Log {
 }
 
 #[no_mangle]
-pub extern fn real_callback(g: *mut libc::c_void, nfmsg: *mut libc::c_void, nfad: *mut libc::c_void, data: *mut libc::c_void ) {
+pub extern "C" fn real_callback(g: *const libc::c_void, nfmsg: *const libc::c_void, nfad: *const libc::c_void, data: *const libc::c_void ) {
     println!("real_callback\n");
     println!("  g:     {:p}", g as *const());
     println!("  nfmsg: {:p}", nfmsg as *const());
@@ -264,14 +260,14 @@ impl Payload {
     }
 
     // get the hardware link layer type from logging data
-    pub fn get_hwtype(&mut self) -> u16 {
+    pub fn get_hwtype(&self) -> u16 {
         return unsafe { nflog_get_hwtype(self.nfad) };
     }
 
 
 
     // get the packet mark
-    pub fn get_nfmark(&mut self) -> u32 {
+    pub fn get_nfmark(&self) -> u32 {
         return unsafe { nflog_get_nfmark(self.nfad) };
     }
 
@@ -279,7 +275,7 @@ impl Payload {
 
 
     // depending on set_mode, we may not have a payload
-    pub fn get_payload(&mut self) -> &[u8] {
+    pub fn get_payload(&self) -> &[u8] {
         let c_ptr = std::ptr::null_mut();
         let payload_len = unsafe { nflog_get_payload(self.nfad, &c_ptr) };
         println!("  payload len: {}", payload_len);
@@ -290,7 +286,7 @@ impl Payload {
     }
 
     // return the log prefix as configured using --nflog-prefix "..."
-    pub fn get_prefix(&mut self) -> Result<String,std::str::Utf8Error> {
+    pub fn get_prefix(&self) -> Result<String,std::str::Utf8Error> {
         let c_buf: *const libc::c_char = unsafe { nflog_get_prefix(self.nfad) };
         let c_str = unsafe { std::ffi::CString::from_raw(c_buf as *mut i8) };
         match c_str.to_str() {
@@ -300,7 +296,7 @@ impl Payload {
     }
 
     // available only for outgoing packets
-    pub fn get_uid(&mut self) -> Result<u32,&str> {
+    pub fn get_uid(&self) -> Result<u32,&str> {
         let mut uid =0;
         let rc = unsafe { nflog_get_uid(self.nfad,&mut uid) };
         match rc {
@@ -310,7 +306,7 @@ impl Payload {
     }
 
     // available only for outgoing packets
-    pub fn get_gid(&mut self) -> Result<u32,&str> {
+    pub fn get_gid(&self) -> Result<u32,&str> {
         let mut gid =0;
         let rc = unsafe { nflog_get_gid(self.nfad,&mut gid) };
         match rc {
@@ -321,7 +317,7 @@ impl Payload {
 
     // get the local nflog sequence number
     // You must enable this via set_flags(nflog::NFULNL_CFG_F_SEQ).
-    pub fn get_seq(&mut self) -> Result<u32,&str> {
+    pub fn get_seq(&self) -> Result<u32,&str> {
         let mut uid =0;
         let rc = unsafe { nflog_get_seq(self.nfad,&mut uid) };
         match rc {
@@ -332,7 +328,7 @@ impl Payload {
 
     // get the global nflog sequence number
     // You must enable this via set_flags(nflog::NFULNL_CFG_F_SEQ_GLOBAL).
-    pub fn get_seq_global(&mut self) -> Result<u32,&str> {
+    pub fn get_seq_global(&self) -> Result<u32,&str> {
         let mut uid =0;
         let rc = unsafe { nflog_get_seq_global(self.nfad,&mut uid) };
         match rc {
@@ -342,7 +338,7 @@ impl Payload {
     }
 
     // print the logged packet in XML format into a buffer
-    pub fn as_xml_str(&mut self, flags: u32) -> Result<String,std::str::Utf8Error> {
+    pub fn as_xml_str(&self, flags: u32) -> Result<String,std::str::Utf8Error> {
         // XXX make sure buffer size is greater or equal than packet size
         let mut buf : [u8;65536] = [0;65536];
         let buf_ptr = buf.as_mut_ptr() as *mut libc::c_uchar;

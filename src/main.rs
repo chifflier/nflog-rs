@@ -3,7 +3,7 @@ extern crate libc;
 
 use std::fmt::Write;
 
-fn hello_rust(payload: &mut nflog::Payload) {
+fn hello_rust(payload: &nflog::Payload) {
     println!("Hello, world!\n");
 
     println!(" -> uid: {}, gid: {}", payload.get_uid().unwrap_or(0xffff), payload.get_gid().unwrap_or(0xffff));
@@ -19,8 +19,7 @@ fn hello_rust(payload: &mut nflog::Payload) {
     }
     println!("{}", s);
 
-    // XXX works, but cannot be used with get_payload()
-    // error: cannot borrow `*payload` as mutable more than once at a time [E0499]
+    // XXX segfaults later :(
     //println!("XML\n{}", payload.as_xml_str(nflog::NFLOG_XML_ALL).unwrap());
 
 }
