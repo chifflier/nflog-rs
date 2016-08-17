@@ -275,7 +275,7 @@ impl Payload {
 
 
     // depending on set_mode, we may not have a payload
-    pub fn get_payload(&self) -> &[u8] {
+    pub fn get_payload<'a>(&'a self) -> &'a [u8] {
         let c_ptr = std::ptr::null_mut();
         let payload_len = unsafe { nflog_get_payload(self.nfad, &c_ptr) };
         println!("  payload len: {}", payload_len);
