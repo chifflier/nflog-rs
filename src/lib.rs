@@ -1,8 +1,21 @@
+//!  Netfilter NFLOG high-level bindings
+//!
+//! libnetfilter_log is a userspace library providing interface to packets that
+//! have been logged by the kernel packet filter. It is is part of a system that
+//! deprecates the old syslog/dmesg based packet logging.
+//!
+//! libnetfilter_log homepage is: http://netfilter.org/projects/libnetfilter_log/
+//!
+//! **Using NFLOG requires root privileges, or the `CAP_NET_ADMIN` capability**
+//!
+//! The code is available on [Github](https://github.com/chifflier/nflog-rust)
+
 extern crate libc;
 
 type NflogHandle = *const libc::c_void;
 type NflogGroupHandle = *const libc::c_void;
 
+/// Prototype for the callback function, triggered when a packet is received
 pub type NflogCallback = fn (&Payload) -> ();
 
 type NflogData = *const libc::c_void;
@@ -69,13 +82,14 @@ pub const NFLOG_XML_TIME    : u32  = (1 << 6);
 pub const NFLOG_XML_ALL     : u32  = (!0u32);
 
 
-
+/// Opaque struct `Log`: abstracts an NFLOG queue
 pub struct Log {
     q  : NflogHandle,
     g  : NflogGroupHandle,
     cb : Option<NflogCallback>,
 }
 
+/// Opaque struct `Payload`: abstracts NFLOG data representing a packet data and metadata
 pub struct Payload {
     //q    : NflogHandle,
     //g    : NflogGroupHandle,
@@ -84,6 +98,7 @@ pub struct Payload {
 
 
 impl Log {
+    /// Creates a new, uninitialized, `Log`.
     pub fn new() -> Log {
         return Log {
             q : std::ptr::null_mut(),
@@ -92,78 +107,166 @@ impl Log {
         };
     }
 
+    /// Opens a NFLOG handler
+    ///
+    /// This function obtains a netfilter log connection handle. When you are
+    /// finished with the handle returned by this function, you should destroy it
+    /// by calling `close()`.
+    /// A new netlink connection is obtained internally
+    /// and associated with the log connection handle returned.
     pub fn open(&mut self) {
         self.q = unsafe { nflog_open() };
     }
 
+    /// Closes a NFLOG handler
+    ///
+    /// This function closes the nflog handler and free associated resources.
     pub fn close(&mut self) {
         unsafe { nflog_close(self.q) };
         self.q = std::ptr::null_mut();
     }
 
-    // requires root privileges
+    /// Bind a nflog handler to a given protocol family
+    ///
+    /// Binds the given log connection handle to process packets belonging to
+    /// the given protocol family (ie. `PF_INET`, `PF_INET6`, etc).
+    ///
+    /// Arguments
+    ///
+    /// * `pf` - Protocol family (usually `AF_INET` or `AF_INET6`)
+    ///
+    /// Remarks:
+    ///
+    /// **Requires root privileges**
     pub fn bind(&self, pf: libc::c_int) -> i32 {
         assert!(!self.q.is_null());
         return unsafe { nflog_bind_pf(self.q,pf) };
     }
 
-    // requires root privileges
+    /// Unbinds the nflog handler from a protocol family
+    ///
+    /// Unbinds the given nflog handle from processing packets belonging to the
+    /// given protocol family.
+    ///
+    /// Arguments
+    ///
+    /// * `pf` - Protocol family (usually `AF_INET` or `AF_INET6`)
+    ///
+    /// Remarks:
+    ///
+    /// **Requires root privileges**
     pub fn unbind(&self, pf: libc::c_int) -> i32 {
         assert!(!self.q.is_null());
         return unsafe { nflog_unbind_pf(self.q,pf) }
     }
 
-    // requires root privileges
+    /// Returns the C file descriptor associated with the nflog handler
+    ///
+    /// This function returns a file descriptor that can be used for
+    /// communication over the netlink connection associated with the given log
+    /// connection handle.
     pub fn fd(&self) -> i32 {
         assert!(!self.q.is_null());
         return unsafe { nflog_fd(self.q) }
     }
 
-    // requires root privileges
+    ///  Binds a new handle to a specific group number.
+    ///
+    /// Arguments:
+    ///
+    /// * `num` - The number of the group to bind to
     pub fn bind_group(&mut self, num: u16) {
         assert!(!self.q.is_null());
         self.g = unsafe { nflog_bind_group(self.q,num) }
     }
 
-    // requires root privileges
+    /// Unbinds a group handle
+    ///
+    /// Arguments:
+    ///
+    /// * `num` - The number of the group to unbind to
     pub fn unbind_group(&mut self) {
         assert!(!self.g.is_null());
         unsafe { nflog_unbind_group(self.g); }
         self.g = std::ptr::null_mut();
     }
 
-    // requires root privileges
+    /// Set the amount of packet data that nflog copies to userspace
+    ///
+    /// Arguments:
+    ///
+    /// * `mode` - The part of the packet that we are interested in
+    /// * `range` - Size of the packet that we want to get
+    ///
+    /// `mode` can be one of:
+    ///
+    /// * `NFULNL_COPY_NONE` - do not copy any data
+    /// * `NFULNL_COPY_META` - copy only packet metadata
+    /// * `NFULNL_COPY_PACKET` - copy entire packet
     pub fn set_mode(&self, mode: u8, range: u32) {
         assert!(!self.g.is_null());
         unsafe { nflog_set_mode(self.g, mode, range); }
     }
 
-    // requires root privileges
+    /// Sets the maximum time to push log buffer for this group
+    ///
+    /// Arguments:
+    ///
+    /// * `timeout` - Time to wait until the log buffer is pushed to userspace
+    ///
+    /// This function allows to set the maximum time that nflog waits until it
+    /// pushes the log buffer to userspace if no new logged packets have occured.
+    ///
+    /// Basically, nflog implements a buffer to reduce the computational cost of
+    /// delivering the log message to userspace.
     pub fn set_timeout(&self, timeout: u32) {
         assert!(!self.g.is_null());
         unsafe { nflog_set_timeout(self.g, timeout); }
     }
 
-    // requires root privileges
+    /// Sets the maximum amount of logs in buffer for this group
+    ///
+    /// Arguments:
+    ///
+    /// * `qthresh` - Maximum number of log entries
+    ///
+    /// This function determines the maximum number of log entries in the
+    /// buffer until it is pushed to userspace.
     pub fn set_qthresh(&self, qthresh: u32) {
         assert!(!self.g.is_null());
         unsafe { nflog_set_qthresh(self.g, qthresh); }
     }
 
-    // requires root privileges
+    /// Sets the size of the nflog buffer for this group
+    ///
+    /// Arguments:
+    ///
+    /// * `nlbufsiz` - Size of the nflog buffer
+    ///
+    /// This function sets the size (in bytes) of the buffer that is used to
+    /// stack log messages in nflog.
     pub fn set_nlbufsiz(&self, nlbufsiz: u32) {
         assert!(!self.g.is_null());
         unsafe { nflog_set_nlbufsiz(self.g, nlbufsiz); }
     }
 
-    // requires root privileges
+    /// Sets the nflog flags for this group
+    ///
+    /// Arguments:
+    ///
+    /// * `flags` - Flags that you want to set
+    ///
+    /// There are two existing flags:
+    ///
+    /// * `NFULNL_CFG_F_SEQ`: This enables local nflog sequence numbering.
+    /// * `NFULNL_CFG_F_SEQ_GLOBAL`: This enables global nflog sequence numbering.
     pub fn set_flags(&self, flags: u16) {
         assert!(!self.g.is_null());
         unsafe { nflog_set_flags(self.g, flags); }
     }
 
 
-
+    /// Registers the callback triggered when a packet is received
     pub fn set_callback(&mut self, cb: NflogCallback) {
         println!("cb: {:p}", cb as *const());
         self.cb = Some(cb);
@@ -175,6 +278,7 @@ impl Log {
         }
     }
 
+    /// Runs an infinite loop, waiting for packets and triggering the callback.
     pub fn run_loop(&self) {
         assert!(!self.g.is_null());
         println!("self: {:p}", self as * const _);
@@ -206,6 +310,7 @@ impl Log {
     }
 }
 
+#[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn real_callback(g: *const libc::c_void, nfmsg: *const libc::c_void, nfad: *const libc::c_void, data: *const libc::c_void ) {
     println!("real_callback\n");
@@ -239,7 +344,7 @@ pub extern "C" fn real_callback(g: *const libc::c_void, nfmsg: *const libc::c_vo
 }
 
 impl Payload {
-    // return the metaheader that wraps the packet
+    /// Return the metaheader that wraps the packet
     pub fn get_msg_packet_hdr(&self) -> NfMsgPacketHdr {
         let ptr = unsafe { nflog_get_msg_packet_hdr(self.nfad) };
         let c_hdr = ptr as *const NfMsgPacketHdr;
@@ -254,14 +359,14 @@ impl Payload {
         return hdr;
     }
 
-    // get the hardware link layer type from logging data
+    /// Get the hardware link layer type from logging data
     pub fn get_hwtype(&self) -> u16 {
         return unsafe { nflog_get_hwtype(self.nfad) };
     }
 
 
 
-    // get the packet mark
+    /// Get the packet mark
     pub fn get_nfmark(&self) -> u32 {
         return unsafe { nflog_get_nfmark(self.nfad) };
     }
@@ -269,7 +374,7 @@ impl Payload {
 
 
 
-    // depending on set_mode, we may not have a payload
+    /// Depending on set_mode, we may not have a payload
     pub fn get_payload<'a>(&'a self) -> &'a [u8] {
         let c_ptr = std::ptr::null_mut();
         let payload_len = unsafe { nflog_get_payload(self.nfad, &c_ptr) };
@@ -280,7 +385,7 @@ impl Payload {
         return payload;
     }
 
-    // return the log prefix as configured using --nflog-prefix "..."
+    /// Return the log prefix as configured using --nflog-prefix "..."
     pub fn get_prefix(&self) -> Result<String,std::str::Utf8Error> {
         let c_buf: *const libc::c_char = unsafe { nflog_get_prefix(self.nfad) };
         let c_str = unsafe { std::ffi::CStr::from_ptr(c_buf) };
@@ -290,7 +395,7 @@ impl Payload {
         }
     }
 
-    // available only for outgoing packets
+    /// Available only for outgoing packets
     pub fn get_uid(&self) -> Result<u32,&str> {
         let mut uid =0;
         let rc = unsafe { nflog_get_uid(self.nfad,&mut uid) };
@@ -300,7 +405,7 @@ impl Payload {
         }
     }
 
-    // available only for outgoing packets
+    /// Available only for outgoing packets
     pub fn get_gid(&self) -> Result<u32,&str> {
         let mut gid =0;
         let rc = unsafe { nflog_get_gid(self.nfad,&mut gid) };
@@ -310,8 +415,8 @@ impl Payload {
         }
     }
 
-    // get the local nflog sequence number
-    // You must enable this via set_flags(nflog::NFULNL_CFG_F_SEQ).
+    /// Get the local nflog sequence number
+    /// You must enable this via set_flags(nflog::NFULNL_CFG_F_SEQ).
     pub fn get_seq(&self) -> Result<u32,&str> {
         let mut uid =0;
         let rc = unsafe { nflog_get_seq(self.nfad,&mut uid) };
@@ -321,8 +426,8 @@ impl Payload {
         }
     }
 
-    // get the global nflog sequence number
-    // You must enable this via set_flags(nflog::NFULNL_CFG_F_SEQ_GLOBAL).
+    /// Get the global nflog sequence number
+    /// You must enable this via set_flags(nflog::NFULNL_CFG_F_SEQ_GLOBAL).
     pub fn get_seq_global(&self) -> Result<u32,&str> {
         let mut uid =0;
         let rc = unsafe { nflog_get_seq_global(self.nfad,&mut uid) };
@@ -332,7 +437,7 @@ impl Payload {
         }
     }
 
-    // print the logged packet in XML format into a buffer
+    /// Print the logged packet in XML format into a buffer
     pub fn as_xml_str(&self, flags: u32) -> Result<String,std::str::Utf8Error> {
         // XXX make sure buffer size is greater or equal than packet size
         let mut buf : [u8;65536] = [0;65536];
@@ -349,10 +454,14 @@ impl Payload {
     }
 }
 
+/// Metaheader wrapping a packet
 #[repr(C)]
 pub struct NfMsgPacketHdr {
-    pub hw_protocol : u16, // hw protocol (network order)
+    /// hw protocol (network order)
+    pub hw_protocol : u16,
+    // Netfilter hook
     pub hook : u8,
+    // Padding (should be ignored)
     pub pad : u8,
 }
 
