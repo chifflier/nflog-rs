@@ -83,11 +83,6 @@ pub struct Payload {
 }
 
 
-pub fn hello() -> u8 {
-    println!("hello\n");
-    return 1u8;
-}
-
 impl Log {
     pub fn new() -> Log {
         return Log {
@@ -368,11 +363,6 @@ pub struct NfMsgPacketHdr {
 mod tests {
 
     extern crate libc;
-
-    #[test]
-    fn it_works() {
-        assert_eq!(::hello(),1u8);
-    }
 
     #[test]
     fn nflog_open() {
