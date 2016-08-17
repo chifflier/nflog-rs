@@ -459,9 +459,9 @@ impl Payload {
 pub struct NfMsgPacketHdr {
     /// hw protocol (network order)
     pub hw_protocol : u16,
-    // Netfilter hook
+    /// Netfilter hook
     pub hook : u8,
-    // Padding (should be ignored)
+    /// Padding (should be ignored)
     pub pad : u8,
 }
 
