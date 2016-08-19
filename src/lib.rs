@@ -91,8 +91,6 @@ pub struct Log {
 
 /// Opaque struct `Payload`: abstracts NFLOG data representing a packet data and metadata
 pub struct Payload {
-    //q    : NflogHandle,
-    //g    : NflogGroupHandle,
     nfad : NflogData,
 }
 
@@ -268,79 +266,46 @@ impl Log {
 
     /// Registers the callback triggered when a packet is received
     pub fn set_callback(&mut self, cb: NflogCallback) {
-        println!("cb: {:p}", cb as *const());
         self.cb = Some(cb);
         let self_ptr = unsafe { std::mem::transmute(&*self) };
-        println!("self_ptr: {:p}", self_ptr);
-        unsafe {
-            println!("nflog_callback_register: {:p}", real_callback as *const());
-            nflog_callback_register(self.g, real_callback, self_ptr);
-        }
+        unsafe { nflog_callback_register(self.g, real_callback, self_ptr); };
     }
 
     /// Runs an infinite loop, waiting for packets and triggering the callback.
     pub fn run_loop(&self) {
         assert!(!self.g.is_null());
-        println!("self: {:p}", self as * const _);
 
         let fd = self.fd();
         let mut buf : [u8;65536] = [0;65536];
         let buf_ptr = buf.as_mut_ptr() as *mut libc::c_void;
         let buf_len = buf.len() as libc::size_t;
 
-        println!("  self.g: {:p}", self.g as *const());
         loop {
-            let rc;
-            unsafe {
-                rc = libc::recv(fd,buf_ptr,buf_len,0);
-                if rc < 0 { panic!("error in recv()"); };
-            }
+            let rc = unsafe { libc::recv(fd,buf_ptr,buf_len,0) };
+            if rc < 0 { panic!("error in recv()"); };
 
-            println!("RECV: {}\n", rc);
-            if rc >= 0 {
-                unsafe {
-                    println!("before nflog_handle_packet");
-                    let rv = nflog_handle_packet(self.q, buf_ptr, rc as libc::c_int);
-                    println!("after nflog_handle_packet: {}", rv);
-                }
-            }
+            let rv = unsafe { nflog_handle_packet(self.q, buf_ptr, rc as libc::c_int) };
+            if rv < 0 { println!("error in nflog_handle_packet()"); }; // not critical
         }
-
-        //println!("end of loop\n");
     }
 }
 
 #[doc(hidden)]
 #[no_mangle]
-pub extern "C" fn real_callback(g: *const libc::c_void, nfmsg: *const libc::c_void, nfad: *const libc::c_void, data: *const libc::c_void ) {
-    println!("real_callback\n");
-    println!("  g:     {:p}", g as *const());
-    println!("  nfmsg: {:p}", nfmsg as *const());
-    println!("  nfad:  {:p}", nfad as *const());
-    println!("  data:  {:p}", data as *const());
-
-    let raw : *mut Log;
-    unsafe {
-        raw = std::mem::transmute(data);
-    }
+pub extern "C" fn real_callback(_g: *const libc::c_void, _nfmsg: *const libc::c_void, nfad: *const libc::c_void, data: *const libc::c_void ) {
+    let raw : *mut Log = unsafe { std::mem::transmute(data) };
 
     let ref mut log = unsafe { &*raw };
     let mut payload = Payload {
-        //q:    log.q,
-        //g:    g,
         nfad: nfad,
     };
-    println!("log: {:p}", log as * const _);
 
     match log.cb {
         None => panic!("no callback registered"),
         Some(callback) => {
-            println!("cb: {:p}", callback as *const());
             callback(&mut payload);
             },
     }
-
-    //panic!("oops");
 }
 
 impl Payload {
@@ -378,8 +343,6 @@ impl Payload {
     pub fn get_payload<'a>(&'a self) -> &'a [u8] {
         let c_ptr = std::ptr::null_mut();
         let payload_len = unsafe { nflog_get_payload(self.nfad, &c_ptr) };
-        println!("  payload len: {}", payload_len);
-        println!("  payload:     {:p}", c_ptr as *const());
         let payload : &[u8] = unsafe { std::slice::from_raw_parts(c_ptr as *mut u8, payload_len as usize) };
 
         return payload;

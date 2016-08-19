@@ -4,7 +4,7 @@ extern crate libc;
 use std::fmt::Write;
 
 fn hello_rust(payload: &nflog::Payload) {
-    println!("Hello, world!\n");
+    println!("Packet received\n");
 
     println!(" -> uid: {}, gid: {}", payload.get_uid().unwrap_or(0xffff), payload.get_gid().unwrap_or(0xffff));
     println!(" -> prefix: {}", payload.get_prefix().unwrap());
