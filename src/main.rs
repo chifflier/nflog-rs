@@ -3,61 +3,61 @@ extern crate libc;
 
 use std::fmt::Write;
 
-fn hello_rust(payload: &nflog::Payload) {
+fn hello_rust(msg: &nflog::Message) {
     println!("Packet received\n");
 
-    println!(" -> payload: {}", payload);
-    println!(" -> uid: {}, gid: {}", payload.get_uid().unwrap_or(0xffff), payload.get_gid().unwrap_or(0xffff));
-    println!(" -> prefix: {}", payload.get_prefix().unwrap());
-    println!(" -> seq: {}", payload.get_seq().unwrap_or(0xffff));
+    println!(" -> msg: {}", msg);
+    println!(" -> uid: {}, gid: {}", msg.get_uid().unwrap_or(0xffff), msg.get_gid().unwrap_or(0xffff));
+    println!(" -> prefix: {}", msg.get_prefix().unwrap());
+    println!(" -> seq: {}", msg.get_seq().unwrap_or(0xffff));
 
-    let payload_data = payload.get_payload();
+    let payload_data = msg.get_payload();
     let mut s = String::new();
     for &byte in payload_data {
         write!(&mut s, "{:X} ", byte).unwrap();
     }
     println!("{}", s);
 
-    let hwaddr = payload.get_packet_hw().unwrap_or(nflog::HwAddr::new(&[]));
+    let hwaddr = msg.get_packet_hw().unwrap_or(nflog::HwAddr::new(&[]));
     println!("{}", hwaddr);
 
 
-    println!("XML\n{}", payload.as_xml_str(&[nflog::XMLFormatFlags::XmlAll]).unwrap());
+    println!("XML\n{}", msg.as_xml_str(&[nflog::XMLFormatFlags::XmlAll]).unwrap());
 
 }
 
 fn main() {
-    let mut log = nflog::Log::new();
+    let mut q = nflog::Queue::new();
 
     println!("nflog example program: print packets metadata");
 
-    log.open();
-    log.unbind(libc::AF_INET); // ignore result, failure is not critical here
+    q.open();
+    q.unbind(libc::AF_INET); // ignore result, failure is not critical here
 
 
-    let rc = log.bind(libc::AF_INET);
+    let rc = q.bind(libc::AF_INET);
     assert!(rc == 0);
 
 
 
-    log.bind_group(0);
+    q.bind_group(0);
 
 
-    log.set_mode(nflog::CopyMode::CopyPacket, 0xffff);
-    //log.set_nlbufsiz(0xffff);
-    //log.set_timeout(1500);
+    q.set_mode(nflog::CopyMode::CopyPacket, 0xffff);
+    //q.set_nlbufsiz(0xffff);
+    //q.set_timeout(1500);
 
-    log.set_flags(nflog::CfgFlags::CfgFlagsSeq);
-
-
-    log.set_callback(hello_rust);
-    log.run_loop();
+    q.set_flags(nflog::CfgFlags::CfgFlagsSeq);
 
 
-
+    q.set_callback(hello_rust);
+    q.run_loop();
 
 
 
 
-    log.close();
+
+
+
+    q.close();
 }

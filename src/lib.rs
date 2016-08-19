@@ -16,41 +16,42 @@
 //! extern crate libc;
 //! extern crate nflog;
 //! use std::fmt::Write;
-//! fn callback(payload: &nflog::Payload) {
-//!     println!(" -> payload: {}", payload);
-//!     // this will send an error if there is no uid (for ex. incoming packets)
-//!     println!(" -> uid: {}, gid: {}", payload.get_uid().unwrap(), payload.get_gid().unwrap());
-//!     println!(" -> prefix: {}", payload.get_prefix().unwrap());
-//!     println!(" -> seq: {}", payload.get_seq().unwrap_or(0xffff));
 //!
-//!     let payload_data = payload.get_payload();
+//! fn callback(msg: &nflog::Message) {
+//!     println!(" -> msg: {}", msg);
+//!     // this will send an error if there is no uid (for ex. incoming packets)
+//!     println!(" -> uid: {}, gid: {}", msg.get_uid().unwrap(), msg.get_gid().unwrap());
+//!     println!(" -> prefix: {}", msg.get_prefix().unwrap());
+//!     println!(" -> seq: {}", msg.get_seq().unwrap_or(0xffff));
+//!
+//!     let payload_data = msg.get_payload();
 //!     let mut s = String::new();
 //!     for &byte in payload_data {
 //!         write!(&mut s, "{:X} ", byte).unwrap();
 //!     }
 //!     println!("{}", s);
 //!
-//!     println!("XML\n{}", payload.as_xml_str(&[nflog::XMLFormatFlags::XmlAll]).unwrap());
+//!     println!("XML\n{}", msg.as_xml_str(&[nflog::XMLFormatFlags::XmlAll]).unwrap());
 //!
 //! }
 //!
 //! fn main() {
-//!     let mut log = nflog::Log::new();
+//!     let mut q = nflog::Queue::new();
 //!
-//!     log.open();
+//!     q.open();
 //!
-//!     let rc = log.bind(libc::AF_INET);
+//!     let rc = q.bind(libc::AF_INET);
 //!     assert!(rc == 0);
 //!
-//!     log.bind_group(0);
+//!     q.bind_group(0);
 //!
-//!     log.set_mode(nflog::CopyMode::CopyPacket, 0xffff);
-//!     log.set_flags(nflog::CfgFlags::CfgFlagsSeq);
+//!     q.set_mode(nflog::CopyMode::CopyPacket, 0xffff);
+//!     q.set_flags(nflog::CfgFlags::CfgFlagsSeq);
 //!
-//!     log.set_callback(callback);
-//!     log.run_loop();
+//!     q.set_callback(callback);
+//!     q.run_loop();
 //!
-//!     log.close();
+//!     q.close();
 //! }
 //! ```
 
@@ -64,7 +65,7 @@ type NflogHandle = *const libc::c_void;
 type NflogGroupHandle = *const libc::c_void;
 
 /// Prototype for the callback function, triggered when a packet is received
-pub type NflogCallback = fn (&Payload) -> ();
+pub type NflogCallback = fn (&Message) -> ();
 
 type NflogData = *const libc::c_void;
 type NflogCCallback = extern "C" fn (*const libc::c_void, *const libc::c_void, *const libc::c_void, *const libc::c_void );
@@ -185,25 +186,25 @@ const NFLOG_XML_TIME    : u32  = (1 << 6);
 const NFLOG_XML_ALL     : u32  = (!0u32);
 
 
-/// Opaque struct `Log`: abstracts an NFLOG queue
-pub struct Log {
-    q  : NflogHandle,
-    g  : NflogGroupHandle,
+/// Opaque struct `Queue`: abstracts an NFLOG queue
+pub struct Queue {
+    qh  : NflogHandle,
+    gh  : NflogGroupHandle,
     cb : Option<NflogCallback>,
 }
 
-/// Opaque struct `Payload`: abstracts NFLOG data representing a packet data and metadata
-pub struct Payload {
+/// Opaque struct `Message`: abstracts NFLOG data representing a packet data and metadata
+pub struct Message {
     nfad : NflogData,
 }
 
 
-impl Log {
-    /// Creates a new, uninitialized, `Log`.
-    pub fn new() -> Log {
-        return Log {
-            q : std::ptr::null_mut(),
-            g : std::ptr::null_mut(),
+impl Queue {
+    /// Creates a new, uninitialized, `Queue`.
+    pub fn new() -> Queue {
+        return Queue {
+            qh : std::ptr::null_mut(),
+            gh : std::ptr::null_mut(),
             cb: None,
         };
     }
@@ -216,15 +217,15 @@ impl Log {
     /// A new netlink connection is obtained internally
     /// and associated with the log connection handle returned.
     pub fn open(&mut self) {
-        self.q = unsafe { nflog_open() };
+        self.qh = unsafe { nflog_open() };
     }
 
     /// Closes a NFLOG handler
     ///
     /// This function closes the nflog handler and free associated resources.
     pub fn close(&mut self) {
-        unsafe { nflog_close(self.q) };
-        self.q = std::ptr::null_mut();
+        unsafe { nflog_close(self.qh) };
+        self.qh = std::ptr::null_mut();
     }
 
     /// Bind a nflog handler to a given protocol family
@@ -240,8 +241,8 @@ impl Log {
     ///
     /// **Requires root privileges**
     pub fn bind(&self, pf: libc::c_int) -> i32 {
-        assert!(!self.q.is_null());
-        return unsafe { nflog_bind_pf(self.q,pf) };
+        assert!(!self.qh.is_null());
+        return unsafe { nflog_bind_pf(self.qh,pf) };
     }
 
     /// Unbinds the nflog handler from a protocol family
@@ -257,8 +258,8 @@ impl Log {
     ///
     /// **Requires root privileges**
     pub fn unbind(&self, pf: libc::c_int) -> i32 {
-        assert!(!self.q.is_null());
-        return unsafe { nflog_unbind_pf(self.q,pf) }
+        assert!(!self.qh.is_null());
+        return unsafe { nflog_unbind_pf(self.qh,pf) }
     }
 
     /// Returns the C file descriptor associated with the nflog handler
@@ -267,8 +268,8 @@ impl Log {
     /// communication over the netlink connection associated with the given log
     /// connection handle.
     pub fn fd(&self) -> i32 {
-        assert!(!self.q.is_null());
-        return unsafe { nflog_fd(self.q) }
+        assert!(!self.qh.is_null());
+        return unsafe { nflog_fd(self.qh) }
     }
 
     ///  Binds a new handle to a specific group number.
@@ -277,8 +278,8 @@ impl Log {
     ///
     /// * `num` - The number of the group to bind to
     pub fn bind_group(&mut self, num: u16) {
-        assert!(!self.q.is_null());
-        self.g = unsafe { nflog_bind_group(self.q,num) }
+        assert!(!self.qh.is_null());
+        self.gh = unsafe { nflog_bind_group(self.qh,num) }
     }
 
     /// Unbinds a group handle
@@ -287,9 +288,9 @@ impl Log {
     ///
     /// * `num` - The number of the group to unbind to
     pub fn unbind_group(&mut self) {
-        assert!(!self.g.is_null());
-        unsafe { nflog_unbind_group(self.g); }
-        self.g = std::ptr::null_mut();
+        assert!(!self.gh.is_null());
+        unsafe { nflog_unbind_group(self.gh); }
+        self.gh = std::ptr::null_mut();
     }
 
     /// Set the amount of packet data that nflog copies to userspace
@@ -305,13 +306,13 @@ impl Log {
     /// * `NFULNL_COPY_META` - copy only packet metadata
     /// * `NFULNL_COPY_PACKET` - copy entire packet
     pub fn set_mode(&self, mode: CopyMode, range: u32) {
-        assert!(!self.g.is_null());
+        assert!(!self.gh.is_null());
         let c_mode = match mode {
             CopyMode::CopyNone => NFULNL_COPY_NONE,
             CopyMode::CopyMeta => NFULNL_COPY_META,
             CopyMode::CopyPacket => NFULNL_COPY_PACKET,
         };
-        unsafe { nflog_set_mode(self.g, c_mode, range); }
+        unsafe { nflog_set_mode(self.gh, c_mode, range); }
     }
 
     /// Sets the maximum time to push log buffer for this group
@@ -326,8 +327,8 @@ impl Log {
     /// Basically, nflog implements a buffer to reduce the computational cost of
     /// delivering the log message to userspace.
     pub fn set_timeout(&self, timeout: u32) {
-        assert!(!self.g.is_null());
-        unsafe { nflog_set_timeout(self.g, timeout); }
+        assert!(!self.gh.is_null());
+        unsafe { nflog_set_timeout(self.gh, timeout); }
     }
 
     /// Sets the maximum amount of logs in buffer for this group
@@ -339,8 +340,8 @@ impl Log {
     /// This function determines the maximum number of log entries in the
     /// buffer until it is pushed to userspace.
     pub fn set_qthresh(&self, qthresh: u32) {
-        assert!(!self.g.is_null());
-        unsafe { nflog_set_qthresh(self.g, qthresh); }
+        assert!(!self.gh.is_null());
+        unsafe { nflog_set_qthresh(self.gh, qthresh); }
     }
 
     /// Sets the size of the nflog buffer for this group
@@ -352,8 +353,8 @@ impl Log {
     /// This function sets the size (in bytes) of the buffer that is used to
     /// stack log messages in nflog.
     pub fn set_nlbufsiz(&self, nlbufsiz: u32) {
-        assert!(!self.g.is_null());
-        unsafe { nflog_set_nlbufsiz(self.g, nlbufsiz); }
+        assert!(!self.gh.is_null());
+        unsafe { nflog_set_nlbufsiz(self.gh, nlbufsiz); }
     }
 
     /// Sets the nflog flags for this group
@@ -367,12 +368,12 @@ impl Log {
     /// * `NFULNL_CFG_F_SEQ`: This enables local nflog sequence numbering.
     /// * `NFULNL_CFG_F_SEQ_GLOBAL`: This enables global nflog sequence numbering.
     pub fn set_flags(&self, flags: CfgFlags) {
-        assert!(!self.g.is_null());
+        assert!(!self.gh.is_null());
         let c_flags : u16 = match flags {
             CfgFlags::CfgFlagsSeq => NFULNL_CFG_F_SEQ,
             CfgFlags::CfgFlagsSeqGlobal => NFULNL_CFG_F_SEQ_GLOBAL,
         };
-        unsafe { nflog_set_flags(self.g, c_flags); }
+        unsafe { nflog_set_flags(self.gh, c_flags); }
     }
 
 
@@ -380,12 +381,12 @@ impl Log {
     pub fn set_callback(&mut self, cb: NflogCallback) {
         self.cb = Some(cb);
         let self_ptr = unsafe { std::mem::transmute(&*self) };
-        unsafe { nflog_callback_register(self.g, real_callback, self_ptr); };
+        unsafe { nflog_callback_register(self.gh, real_callback, self_ptr); };
     }
 
     /// Runs an infinite loop, waiting for packets and triggering the callback.
     pub fn run_loop(&self) {
-        assert!(!self.g.is_null());
+        assert!(!self.gh.is_null());
 
         let fd = self.fd();
         let mut buf : [u8;65536] = [0;65536];
@@ -396,7 +397,7 @@ impl Log {
             let rc = unsafe { libc::recv(fd,buf_ptr,buf_len,0) };
             if rc < 0 { panic!("error in recv()"); };
 
-            let rv = unsafe { nflog_handle_packet(self.q, buf_ptr, rc as libc::c_int) };
+            let rv = unsafe { nflog_handle_packet(self.qh, buf_ptr, rc as libc::c_int) };
             if rv < 0 { println!("error in nflog_handle_packet()"); }; // not critical
         }
     }
@@ -405,22 +406,22 @@ impl Log {
 #[doc(hidden)]
 #[no_mangle]
 pub extern "C" fn real_callback(_g: *const libc::c_void, _nfmsg: *const libc::c_void, nfad: *const libc::c_void, data: *const libc::c_void ) {
-    let raw : *mut Log = unsafe { std::mem::transmute(data) };
+    let raw : *mut Queue = unsafe { std::mem::transmute(data) };
 
-    let ref mut log = unsafe { &*raw };
-    let mut payload = Payload {
+    let ref mut q = unsafe { &*raw };
+    let mut msg = Message {
         nfad: nfad,
     };
 
-    match log.cb {
+    match q.cb {
         None => panic!("no callback registered"),
         Some(callback) => {
-            callback(&mut payload);
+            callback(&mut msg);
             },
     }
 }
 
-impl Payload {
+impl Message {
     /// Return the metaheader that wraps the packet
     pub fn get_msg_packet_hdr(&self) -> NfMsgPacketHdr {
         let ptr = unsafe { nflog_get_msg_packet_hdr(self.nfad) };
@@ -616,7 +617,7 @@ impl Payload {
 use std::fmt;
 use std::fmt::Write;
 
-impl fmt::Display for Payload {
+impl fmt::Display for Message {
     fn fmt(&self, out: &mut fmt::Formatter) -> fmt::Result {
         let payload_data = self.get_payload();
         let mut s = String::new();
@@ -636,34 +637,34 @@ mod tests {
 
     #[test]
     fn nflog_open() {
-        let mut log = ::Log::new();
+        let mut q = ::Queue::new();
 
-        log.open();
+        q.open();
 
-        let raw = log.q as *const i32;
+        let raw = q.qh as *const i32;
         println!("nfq_open: 0x{:x}", unsafe{*raw});
 
-        assert!(!log.q.is_null());
+        assert!(!q.qh.is_null());
 
-        log.close();
+        q.close();
     }
 
     #[test]
     #[ignore]
     fn nflog_bind() {
-        let mut log = ::Log::new();
+        let mut q = ::Queue::new();
 
-        log.open();
+        q.open();
 
-        let raw = log.q as *const i32;
+        let raw = q.qh as *const i32;
         println!("nfq_open: 0x{:x}", unsafe{*raw});
 
-        assert!(!log.q.is_null());
+        assert!(!q.qh.is_null());
 
-        let rc = log.bind(libc::AF_INET);
-        println!("log.bind: {}", rc);
-        assert!(log.bind(libc::AF_INET) == 0);
+        let rc = q.bind(libc::AF_INET);
+        println!("q.bind: {}", rc);
+        assert!(q.bind(libc::AF_INET) == 0);
 
-        log.close();
+        q.close();
     }
 }
