@@ -12,12 +12,15 @@ fn hello_rust(payload: &nflog::Payload) {
     println!(" -> seq: {}", payload.get_seq().unwrap_or(0xffff));
 
     let payload_data = payload.get_payload();
-
     let mut s = String::new();
     for &byte in payload_data {
         write!(&mut s, "{:X} ", byte).unwrap();
     }
     println!("{}", s);
+
+    let hwaddr = payload.get_packet_hw().unwrap_or(nflog::HwAddr::new(&[]));
+    println!("{}", hwaddr);
+
 
     println!("XML\n{}", payload.as_xml_str(&[nflog::XMLFormatFlags::XmlAll]).unwrap());
 

@@ -54,6 +54,9 @@
 
 extern crate libc;
 
+pub use hwaddr::*;
+mod hwaddr;
+
 type NflogHandle = *const libc::c_void;
 type NflogGroupHandle = *const libc::c_void;
 
@@ -62,6 +65,28 @@ pub type NflogCallback = fn (&Payload) -> ();
 
 type NflogData = *const libc::c_void;
 type NflogCCallback = extern "C" fn (*const libc::c_void, *const libc::c_void, *const libc::c_void, *const libc::c_void );
+
+/// Hardware address
+#[repr(C)]
+struct NfMsgPacketHw {
+    /// Hardware address length
+    pub hw_addrlen : u16,
+    /// Padding (should be ignored)
+    pub _pad : u16,
+    /// The hardware address
+    pub hw_addr : [u8;8],
+}
+
+/// Metaheader wrapping a packet
+#[repr(C)]
+pub struct NfMsgPacketHdr {
+    /// hw protocol (network order)
+    pub hw_protocol : u16,
+    /// Netfilter hook
+    pub hook : u8,
+    /// Padding (should be ignored)
+    pub pad : u8,
+}
 
 #[link(name = "netfilter_log")]
 extern {
@@ -86,7 +111,12 @@ extern {
     fn nflog_get_hwtype (nfad: NflogData) -> u16;
 
     fn nflog_get_nfmark (nfad: NflogData) -> u32;
-
+    fn nflog_get_timestamp (nfad: NflogData, tv: *mut libc::timeval) -> u32;
+    fn nflog_get_indev (nfad: NflogData) -> u32;
+    fn nflog_get_physindev (nfad: NflogData) -> u32;
+    fn nflog_get_outdev (nfad: NflogData) -> u32;
+    fn nflog_get_physoutdev (nfad: NflogData) -> u32;
+    fn nflog_get_packet_hw (nfad: NflogData) -> *const NfMsgPacketHw;
     fn nflog_get_payload (nfad: NflogData, data: &*mut libc::c_void) -> libc::c_int;
     fn nflog_get_prefix (nfad: NflogData) -> *const libc::c_char;
     fn nflog_get_uid (nfad: NflogData, uid: *mut u32) -> libc::c_int;
@@ -103,6 +133,7 @@ extern {
 }
 
 
+#[derive(Debug)]
 pub enum NflogError {
     NoSuchAttribute,
 }
@@ -414,8 +445,78 @@ impl Payload {
         return unsafe { nflog_get_nfmark(self.nfad) };
     }
 
+    /// Get the packet timestamp
+    pub fn get_timestamp(&self) -> Result<libc::timeval,NflogError> {
+        let mut tv = libc::timeval {
+            tv_sec: 0,
+            tv_usec: 0,
+        };
+        let rc = unsafe { nflog_get_timestamp(self.nfad,&mut tv) };
+        match rc {
+            0 => Ok(tv),
+            _ => Err(NflogError::NoSuchAttribute),
+        }
+    }
 
+    /// Get the interface that the packet was received through
+    ///
+    /// Returns the index of the device the packet was received via.
+    /// If the returned index is 0, the packet was locally generated or the
+    /// input interface is not known (ie. `POSTROUTING`?).
+    pub fn get_indev(&self) -> u32 {
+        return unsafe { nflog_get_indev(self.nfad) };
+    }
 
+    /// Get the physical interface that the packet was received through
+    ///
+    /// Returns the index of the physical device the packet was received via.
+    /// If the returned index is 0, the packet was locally generated or the
+    /// physical input interface is no longer known (ie. `POSTROUTING`?).
+    pub fn get_physindev(&self) -> u32 {
+        return unsafe { nflog_get_physindev(self.nfad) };
+    }
+
+    /// Get the interface that the packet will be routed out
+    ///
+    /// Returns the index of the device the packet will be sent out.
+    /// If the returned index is 0, the packet is destined to localhost or
+    /// the output interface is not yet known (ie. `PREROUTING`?).
+    pub fn get_outdev(&self) -> u32 {
+        return unsafe { nflog_get_outdev(self.nfad) };
+    }
+
+    /// Get the physical interface that the packet will be routed out
+    ///
+    /// Returns the index of the physical device the packet will be sent out.
+    /// If the returned index is 0, the packet is destined to localhost or
+    /// the physical output interface is not yet known (ie. `PREROUTING`?).
+    pub fn get_physoutdev(&self) -> u32 {
+        return unsafe { nflog_get_physoutdev(self.nfad) };
+    }
+
+    /// Get hardware address
+    ///
+    /// Retrieves the hardware address associated with the given packet.
+    ///
+    /// For ethernet packets, the hardware address returned (if any) will be
+    /// the MAC address of the packet *source* host.
+    ///
+    /// The destination MAC address is not
+    /// known until after POSTROUTING and a successful ARP request, so cannot
+    /// currently be retrieved.
+    pub fn get_packet_hw<'a>(&'a self) -> Result<HwAddr<'a>,NflogError> {
+        let c_hw = unsafe { nflog_get_packet_hw(self.nfad) };
+
+        if c_hw == std::ptr::null() {
+            return Err(NflogError::NoSuchAttribute);
+        }
+
+        let c_len = u16::from_be(unsafe{(*c_hw).hw_addrlen}) as usize;
+        match c_len {
+            0 => Err(NflogError::NoSuchAttribute),
+            _ => Ok( HwAddr::new(unsafe{&((*c_hw).hw_addr)[1..c_len]})),
+        }
+    }
 
     /// Depending on set_mode, we may not have a payload
     pub fn get_payload<'a>(&'a self) -> &'a [u8] {
@@ -426,7 +527,8 @@ impl Payload {
         return payload;
     }
 
-    /// Return the log prefix as configured using --nflog-prefix "..."
+    /// Return the log prefix as configured using `--nflog-prefix "..."`
+    /// in iptables rules.
     pub fn get_prefix(&self) -> Result<String,std::str::Utf8Error> {
         let c_buf: *const libc::c_char = unsafe { nflog_get_prefix(self.nfad) };
         let c_str = unsafe { std::ffi::CStr::from_ptr(c_buf) };
@@ -506,17 +608,6 @@ impl Payload {
             Err(e) => Err(e),
         }
     }
-}
-
-/// Metaheader wrapping a packet
-#[repr(C)]
-pub struct NfMsgPacketHdr {
-    /// hw protocol (network order)
-    pub hw_protocol : u16,
-    /// Netfilter hook
-    pub hook : u8,
-    /// Padding (should be ignored)
-    pub pad : u8,
 }
 
 use std::fmt;
