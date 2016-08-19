@@ -14,6 +14,7 @@
 //!
 //! ```
 //! fn callback(payload: &nflog::Payload) {
+//!     println!(" -> payload: {}", payload);
 //!     // this will send an error if there is no uid (for ex. incoming packets)
 //!     println!(" -> uid: {}, gid: {}", payload.get_uid().unwrap(), payload.get_gid().unwrap());
 //!     println!(" -> prefix: {}", payload.get_prefix().unwrap());
@@ -518,6 +519,19 @@ pub struct NfMsgPacketHdr {
     pub pad : u8,
 }
 
+use std::fmt;
+use std::fmt::Write;
+
+impl fmt::Display for Payload {
+    fn fmt(&self, out: &mut fmt::Formatter) -> fmt::Result {
+        let payload_data = self.get_payload();
+        let mut s = String::new();
+        for &byte in payload_data {
+            write!(&mut s, "{:X} ", byte).unwrap();
+        }
+        write!(out, "{}", s)
+    }
+}
 
 
 
