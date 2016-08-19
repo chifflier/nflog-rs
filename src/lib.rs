@@ -9,6 +9,47 @@
 //! **Using NFLOG requires root privileges, or the `CAP_NET_ADMIN` capability**
 //!
 //! The code is available on [Github](https://github.com/chifflier/nflog-rust)
+//!
+//! # Example
+//!
+//! ```
+//! fn callback(payload: &nflog::Payload) {
+//!     // this will send an error if there is no uid (for ex. incoming packets)
+//!     println!(" -> uid: {}, gid: {}", payload.get_uid().unwrap(), payload.get_gid().unwrap());
+//!     println!(" -> prefix: {}", payload.get_prefix().unwrap());
+//!     println!(" -> seq: {}", payload.get_seq().unwrap_or(0xffff));
+//!
+//!     let payload_data = payload.get_payload();
+//!     let mut s = String::new();
+//!     for &byte in payload_data {
+//!         write!(&mut s, "{:X} ", byte).unwrap();
+//!     }
+//!     println!("{}", s);
+//!
+//!     println!("XML\n{}", payload.as_xml_str(&[nflog::XMLFormatFlags::XmlAll]).unwrap());
+//!
+//! }
+//!
+//! fn main() {
+//!     let mut log = nflog::Log::new();
+//!
+//!     log.open();
+//!
+//!     let rc = log.bind(libc::AF_INET);
+//!     assert!(rc == 0);
+//!
+//!     log.bind_group(0);
+//!
+//!     log.set_mode(nflog::CopyMode::CopyPacket, 0xffff);
+//!     log.set_flags(nflog::CfgFlags::CfgFlagsSeq);
+//!
+//!     log.set_callback(callback);
+//!     log.run_loop();
+//!
+//!     log.close();
+//! }
+//! ```
+
 
 extern crate libc;
 
