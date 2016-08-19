@@ -102,6 +102,11 @@ extern {
 }
 
 
+pub enum NflogError {
+    NoSuchAttribute,
+}
+
+
 
 /// Copy modes
 pub enum CopyMode {
@@ -441,34 +446,34 @@ impl Payload {
     }
 
     /// Available only for outgoing packets
-    pub fn get_gid(&self) -> Result<u32,&str> {
+    pub fn get_gid(&self) -> Result<u32,NflogError> {
         let mut gid =0;
         let rc = unsafe { nflog_get_gid(self.nfad,&mut gid) };
         match rc {
             0 => Ok(gid),
-            _ => Err("nflog_get_gid"),
+            _ => Err(NflogError::NoSuchAttribute),
         }
     }
 
     /// Get the local nflog sequence number
-    /// You must enable this via set_flags(nflog::NFULNL_CFG_F_SEQ).
-    pub fn get_seq(&self) -> Result<u32,&str> {
+    /// You must enable this via `set_flags(nflog::CfgFlags::CfgFlagsSeq)`.
+    pub fn get_seq(&self) -> Result<u32,NflogError> {
         let mut uid =0;
         let rc = unsafe { nflog_get_seq(self.nfad,&mut uid) };
         match rc {
             0 => Ok(uid),
-            _ => Err("nflog_get_seq"),
+            _ => Err(NflogError::NoSuchAttribute),
         }
     }
 
     /// Get the global nflog sequence number
-    /// You must enable this via set_flags(nflog::NFULNL_CFG_F_SEQ_GLOBAL).
-    pub fn get_seq_global(&self) -> Result<u32,&str> {
+    /// You must enable this via `set_flags(nflog::CfgFlags::CfgFlagsSeqGlobal)`.
+    pub fn get_seq_global(&self) -> Result<u32,NflogError> {
         let mut uid =0;
         let rc = unsafe { nflog_get_seq_global(self.nfad,&mut uid) };
         match rc {
             0 => Ok(uid),
-            _ => Err("nflog_get_seq_global"),
+            _ => Err(NflogError::NoSuchAttribute),
         }
     }
 
