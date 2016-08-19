@@ -62,24 +62,46 @@ extern {
 
 
 
-// Copy modes
-pub const NFULNL_COPY_NONE : u8   = 0x00;
-pub const NFULNL_COPY_META : u8   = 0x01;
-pub const NFULNL_COPY_PACKET : u8 = 0x02;
+/// Copy modes
+pub enum CopyMode {
+    /// Do not copy packet contents nor metadata
+    CopyNone,
+    /// Copy only packet metadata, not payload
+    CopyMeta,
+    /// Copy packet metadata and not payload
+    CopyPacket,
+}
+const NFULNL_COPY_NONE : u8   = 0x00;
+const NFULNL_COPY_META : u8   = 0x01;
+const NFULNL_COPY_PACKET : u8 = 0x02;
 
-// Flags
-pub const NFULNL_CFG_F_SEQ : u16         = 0x0001;
-pub const NFULNL_CFG_F_SEQ_GLOBAL : u16  = 0x0001;
+/// Configuration Flags
+pub enum CfgFlags {
+    CfgFlagsSeq,
+    CfgFlagsSeqGlobal,
+}
+const NFULNL_CFG_F_SEQ : u16         = 0x0001;
+const NFULNL_CFG_F_SEQ_GLOBAL : u16  = 0x0001;
 
-// XML formatting flags
-pub const NFLOG_XML_PREFIX  : u32  = (1 << 0);
-pub const NFLOG_XML_HW      : u32  = (1 << 1);
-pub const NFLOG_XML_MARK    : u32  = (1 << 2);
-pub const NFLOG_XML_DEV     : u32  = (1 << 3);
-pub const NFLOG_XML_PHYSDEV : u32  = (1 << 4);
-pub const NFLOG_XML_PAYLOAD : u32  = (1 << 5);
-pub const NFLOG_XML_TIME    : u32  = (1 << 6);
-pub const NFLOG_XML_ALL     : u32  = (!0u32);
+/// XML formatting flags
+pub enum XMLFormatFlags {
+    XmlPrefix,
+    XmlHw,
+    XmlMark,
+    XmlDev,
+    XmlPhysDev,
+    XmlPayload,
+    XmlTime,
+    XmlAll,
+}
+const NFLOG_XML_PREFIX  : u32  = (1 << 0);
+const NFLOG_XML_HW      : u32  = (1 << 1);
+const NFLOG_XML_MARK    : u32  = (1 << 2);
+const NFLOG_XML_DEV     : u32  = (1 << 3);
+const NFLOG_XML_PHYSDEV : u32  = (1 << 4);
+const NFLOG_XML_PAYLOAD : u32  = (1 << 5);
+const NFLOG_XML_TIME    : u32  = (1 << 6);
+const NFLOG_XML_ALL     : u32  = (!0u32);
 
 
 /// Opaque struct `Log`: abstracts an NFLOG queue
@@ -201,9 +223,14 @@ impl Log {
     /// * `NFULNL_COPY_NONE` - do not copy any data
     /// * `NFULNL_COPY_META` - copy only packet metadata
     /// * `NFULNL_COPY_PACKET` - copy entire packet
-    pub fn set_mode(&self, mode: u8, range: u32) {
+    pub fn set_mode(&self, mode: CopyMode, range: u32) {
         assert!(!self.g.is_null());
-        unsafe { nflog_set_mode(self.g, mode, range); }
+        let c_mode = match mode {
+            CopyMode::CopyNone => NFULNL_COPY_NONE,
+            CopyMode::CopyMeta => NFULNL_COPY_META,
+            CopyMode::CopyPacket => NFULNL_COPY_PACKET,
+        };
+        unsafe { nflog_set_mode(self.g, c_mode, range); }
     }
 
     /// Sets the maximum time to push log buffer for this group
@@ -258,9 +285,13 @@ impl Log {
     ///
     /// * `NFULNL_CFG_F_SEQ`: This enables local nflog sequence numbering.
     /// * `NFULNL_CFG_F_SEQ_GLOBAL`: This enables global nflog sequence numbering.
-    pub fn set_flags(&self, flags: u16) {
+    pub fn set_flags(&self, flags: CfgFlags) {
         assert!(!self.g.is_null());
-        unsafe { nflog_set_flags(self.g, flags); }
+        let c_flags : u16 = match flags {
+            CfgFlags::CfgFlagsSeq => NFULNL_CFG_F_SEQ,
+            CfgFlags::CfgFlagsSeqGlobal => NFULNL_CFG_F_SEQ_GLOBAL,
+        };
+        unsafe { nflog_set_flags(self.g, c_flags); }
     }
 
 
@@ -401,13 +432,26 @@ impl Payload {
     }
 
     /// Print the logged packet in XML format into a buffer
-    pub fn as_xml_str(&self, flags: u32) -> Result<String,std::str::Utf8Error> {
-        // XXX make sure buffer size is greater or equal than packet size
+    pub fn as_xml_str(&self, flags: &[XMLFormatFlags]) -> Result<String,std::str::Utf8Error> {
+        // if buffer size is smaller than output, nflog_snprintf_xml will fail
         let mut buf : [u8;65536] = [0;65536];
         let buf_ptr = buf.as_mut_ptr() as *mut libc::c_uchar;
         let buf_len = buf.len() as libc::size_t;
 
-        let rc = unsafe { nflog_snprintf_xml(buf_ptr, buf_len, self.nfad, flags) };
+        let xml_flags = flags.iter().map(|flag| {
+            match *flag {
+                XMLFormatFlags::XmlPrefix => NFLOG_XML_PREFIX,
+                XMLFormatFlags::XmlHw => NFLOG_XML_HW,
+                XMLFormatFlags::XmlMark => NFLOG_XML_MARK,
+                XMLFormatFlags::XmlDev => NFLOG_XML_DEV,
+                XMLFormatFlags::XmlPhysDev => NFLOG_XML_PHYSDEV,
+                XMLFormatFlags::XmlPayload => NFLOG_XML_PAYLOAD,
+                XMLFormatFlags::XmlTime => NFLOG_XML_TIME,
+                XMLFormatFlags::XmlAll => NFLOG_XML_ALL,
+            }
+        }).fold(0u32, |acc, i| acc | i);
+
+        let rc = unsafe { nflog_snprintf_xml(buf_ptr, buf_len, self.nfad, xml_flags) };
         if rc < 0 { panic!("nflog_snprintf_xml"); } // XXX see snprintf error codes
 
         match std::str::from_utf8(&buf) {

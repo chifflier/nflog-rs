@@ -19,7 +19,7 @@ fn hello_rust(payload: &nflog::Payload) {
     }
     println!("{}", s);
 
-    println!("XML\n{}", payload.as_xml_str(nflog::NFLOG_XML_ALL).unwrap());
+    println!("XML\n{}", payload.as_xml_str(&[nflog::XMLFormatFlags::XmlAll]).unwrap());
 
 }
 
@@ -40,11 +40,11 @@ fn main() {
     log.bind_group(0);
 
 
-    log.set_mode(nflog::NFULNL_COPY_PACKET, 0xffff);
+    log.set_mode(nflog::CopyMode::CopyPacket, 0xffff);
     //log.set_nlbufsiz(0xffff);
     //log.set_timeout(1500);
 
-    log.set_flags(nflog::NFULNL_CFG_F_SEQ);
+    log.set_flags(nflog::CfgFlags::CfgFlagsSeq);
 
 
     log.set_callback(hello_rust);
