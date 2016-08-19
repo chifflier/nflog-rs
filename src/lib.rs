@@ -12,7 +12,10 @@
 //!
 //! # Example
 //!
-//! ```
+//! ```rust,ignore
+//! extern crate libc;
+//! extern crate nflog;
+//! use std::fmt::Write;
 //! fn callback(payload: &nflog::Payload) {
 //!     println!(" -> payload: {}", payload);
 //!     // this will send an error if there is no uid (for ex. incoming packets)
