@@ -4,13 +4,5 @@ name = "nflog"
 version = "0.0.1"
 authors = [ "Pierre Chifflier <chifflier@wzdftpd.net>" ]
 
-[lib]
-name = "nflog"
-path = "src/lib.rs"
-
-[[bin]]
-name = "nfprint"
-path = "src/main.rs"
-
 [dependencies]
 libc = "0.2.0"
