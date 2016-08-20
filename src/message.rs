@@ -31,7 +31,8 @@ extern {
     // message parsing functions
     fn nflog_get_msg_packet_hdr(nfad: NflogData) -> *const libc::c_void;
     fn nflog_get_hwtype (nfad: NflogData) -> u16;
-
+    fn nflog_get_msg_packet_hwhdrlen (nfad: NflogData) -> u16;
+    fn nflog_get_msg_packet_hwhdr (nfad: NflogData) -> *const libc::c_char;
     fn nflog_get_nfmark (nfad: NflogData) -> u32;
     fn nflog_get_timestamp (nfad: NflogData, tv: *mut libc::timeval) -> u32;
     fn nflog_get_indev (nfad: NflogData) -> u32;
@@ -82,6 +83,10 @@ pub struct NfMsgPacketHdr {
 }
 
 impl Message {
+    /// Create a `Messsage` from a valid NflogData pointer
+    ///
+    /// **This function should never be called directly**
+    #[doc(hidden)]
     pub fn new(nfad: *const libc::c_void) -> Message {
         Message {
             nfad: nfad,
@@ -108,7 +113,13 @@ impl Message {
         return unsafe { nflog_get_hwtype(self.nfad) };
     }
 
-
+    /// Get the hardware link layer header
+    pub fn get_packet_hwhdr<'a>(&'a self) -> &'a [u8] {
+        let c_len = unsafe { nflog_get_msg_packet_hwhdrlen(self.nfad) };
+        let c_ptr = unsafe { nflog_get_msg_packet_hwhdr(self.nfad) };
+        let data : &[u8] = unsafe { std::slice::from_raw_parts(c_ptr as *mut u8, c_len as usize) };
+        return data;
+    }
 
     /// Get the packet mark
     pub fn get_nfmark(&self) -> u32 {
