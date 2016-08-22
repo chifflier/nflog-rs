@@ -26,6 +26,7 @@ pub enum XMLFormatFlags {
     XmlTime,
     XmlAll,
 }
+
 #[link(name = "netfilter_log")]
 extern {
     // message parsing functions
@@ -199,7 +200,11 @@ impl Message {
         }
     }
 
+    /// Get payload
+    ///
     /// Depending on set_mode, we may not have a payload
+    /// The actual amount and type of data retrieved by this function will
+    /// depend on the mode set with the `set_mode()` function.
     pub fn get_payload<'a>(&'a self) -> &'a [u8] {
         let c_ptr = std::ptr::null_mut();
         let payload_len = unsafe { nflog_get_payload(self.nfad, &c_ptr) };

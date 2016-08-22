@@ -3,7 +3,7 @@ extern crate libc;
 
 use std::fmt::Write;
 
-fn hello_rust(msg: &nflog::Message) {
+fn log_callback(msg: &nflog::Message) {
     println!("Packet received\n");
 
     println!(" -> msg: {}", msg);
@@ -50,7 +50,7 @@ fn main() {
     q.set_flags(nflog::CfgFlags::CfgFlagsSeq);
 
 
-    q.set_callback(hello_rust);
+    q.set_callback(log_callback);
     q.run_loop();
 
 

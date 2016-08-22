@@ -8,7 +8,7 @@
 //!
 //! **Using NFLOG requires root privileges, or the `CAP_NET_ADMIN` capability**
 //!
-//! The code is available on [Github](https://github.com/chifflier/nflog-rust)
+//! The code is available on [Github](https://github.com/chifflier/nflog-rs)
 //!
 //! # Example
 //!
@@ -153,6 +153,7 @@ impl Queue {
     ///
     /// This function closes the nflog handler and free associated resources.
     pub fn close(&mut self) {
+        assert!(!self.qh.is_null());
         unsafe { nflog_close(self.qh) };
         self.qh = std::ptr::null_mut();
     }
