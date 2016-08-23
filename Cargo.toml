@@ -1,4 +1,6 @@
 [package]
+description = " Netfilter NFLOG high-level bindings"
+License = "GPL-2.0+"
 
 name = "nflog"
 version = "0.9.0"
