@@ -8,6 +8,7 @@ type NflogData = *const libc::c_void;
 /// Opaque struct `Message`: abstracts NFLOG data representing a packet data and metadata
 pub struct Message {
     nfad : NflogData,
+    l3_proto: u16,
 }
 
 #[derive(Debug)]
@@ -89,8 +90,12 @@ impl Message {
     /// **This function should never be called directly**
     #[doc(hidden)]
     pub fn new(nfad: *const libc::c_void) -> Message {
+        let msg_hdr = unsafe { nflog_get_msg_packet_hdr(nfad) as *const NfMsgPacketHdr };
+        assert!(!msg_hdr.is_null());
+        let l3_proto = u16::from_be( unsafe{(*msg_hdr).hw_protocol} );
         Message {
             nfad: nfad,
+            l3_proto: l3_proto,
         }
     }
 
@@ -120,6 +125,11 @@ impl Message {
         let c_ptr = unsafe { nflog_get_msg_packet_hwhdr(self.nfad) };
         let data : &[u8] = unsafe { std::slice::from_raw_parts(c_ptr as *mut u8, c_len as usize) };
         return data;
+    }
+
+    /// Returns the layer 3 protocol/EtherType of the packet (i.e. 0x0800 is IPv4)
+    pub fn get_l3_proto(&self) -> u16 {
+        self.l3_proto
     }
 
     /// Get the packet mark
