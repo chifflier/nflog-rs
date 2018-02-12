@@ -59,6 +59,7 @@
 extern crate libc;
 
 use std::panic;
+use std::ptr;
 
 pub use hwaddr::*;
 mod hwaddr;
@@ -126,6 +127,7 @@ const NFULNL_CFG_F_SEQ_GLOBAL : u16  = 0x0001;
 pub struct Queue {
     qh  : NflogHandle,
     gh  : NflogGroupHandle,
+    current_callback: *mut Box<LogCallback>,
 }
 
 
@@ -133,8 +135,9 @@ impl Queue {
     /// Creates a new, uninitialized, `Queue`.
     pub fn new() -> Queue {
         return Queue {
-            qh : std::ptr::null_mut(),
-            gh : std::ptr::null_mut(),
+            qh : ptr::null_mut(),
+            gh : ptr::null_mut(),
+            current_callback: ptr::null_mut(),
         };
     }
 
@@ -155,7 +158,7 @@ impl Queue {
     pub fn close(&mut self) {
         assert!(!self.qh.is_null());
         unsafe { nflog_close(self.qh) };
-        self.qh = std::ptr::null_mut();
+        self.qh = ptr::null_mut();
     }
 
     /// Bind a nflog handler to a given protocol family
@@ -220,7 +223,7 @@ impl Queue {
     pub fn unbind_group(&mut self) {
         assert!(!self.gh.is_null());
         unsafe { nflog_unbind_group(self.gh); }
-        self.gh = std::ptr::null_mut();
+        self.gh = ptr::null_mut();
     }
 
     /// Set the amount of packet data that nflog copies to userspace
@@ -313,10 +316,24 @@ impl Queue {
     }
 
     fn _set_callback(&mut self, f: Box<LogCallback>) {
-        // Leaked forever. Might be possible to clean up existing callback on drop.
+        // Double box, so the value is a single pointer, not 2 pointers
         let cb_box = Box::into_raw(Box::new(f));
         unsafe { nflog_callback_register(self.gh, Some(real_callback), cb_box as *mut _); };
+        if !self.current_callback.is_null() {
+            // drop existing callback
+            let _ = unsafe { Box::from_raw(self.current_callback) };
+        }
+        self.current_callback = cb_box;
+    }
 
+    pub fn clear_callback(&mut self) {
+        if self.current_callback.is_null() {
+            return;
+        }
+        unsafe { nflog_callback_register(self.gh, None, ptr::null_mut()); };
+        // drop existing callback
+        let _ = unsafe { Box::from_raw(self.current_callback) };
+        self.current_callback = ptr::null_mut();
     }
 
     /// Runs an infinite loop, waiting for packets and triggering the callback.
