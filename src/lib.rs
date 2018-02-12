@@ -4,7 +4,7 @@
 //! have been logged by the kernel packet filter. It is is part of a system that
 //! deprecates the old syslog/dmesg based packet logging.
 //!
-//! libnetfilter_log homepage is: http://netfilter.org/projects/libnetfilter_log/
+//! libnetfilter_log homepage is: [http://netfilter.org/projects/libnetfilter_log/](http://netfilter.org/projects/libnetfilter_log/)
 //!
 //! **Using NFLOG requires root privileges, or the `CAP_NET_ADMIN` capability**
 //!
@@ -12,12 +12,12 @@
 //!
 //! # Example
 //!
-//! ```rust,ignore
+//! ```rust,no_run
 //! extern crate libc;
 //! extern crate nflog;
 //! use std::fmt::Write;
 //!
-//! fn callback(msg: &nflog::Message) {
+//! fn callback(msg: nflog::Message) {
 //!     println!(" -> msg: {}", msg);
 //!     // this will send an error if there is no uid (for ex. incoming packets)
 //!     println!(" -> uid: {}, gid: {}", msg.get_uid().unwrap(), msg.get_gid().unwrap());
@@ -58,6 +58,8 @@
 
 extern crate libc;
 
+use std::panic;
+
 pub use hwaddr::*;
 mod hwaddr;
 
@@ -68,9 +70,9 @@ type NflogHandle = *const libc::c_void;
 type NflogGroupHandle = *const libc::c_void;
 
 /// Prototype for the callback function, triggered when a packet is received
-pub type NflogCallback = fn (&Message) -> ();
+type LogCallback = Fn(Message) + Send + Sync + 'static;
 
-type NflogCCallback = extern "C" fn (*const libc::c_void, *const libc::c_void, *const libc::c_void, *const libc::c_void );
+type NflogCCallback = Option<extern "C" fn (*const libc::c_void, *const libc::c_void, *const libc::c_void, *const libc::c_void) -> i32>;
 
 #[link(name = "netfilter_log")]
 extern {
@@ -124,7 +126,6 @@ const NFULNL_CFG_F_SEQ_GLOBAL : u16  = 0x0001;
 pub struct Queue {
     qh  : NflogHandle,
     gh  : NflogGroupHandle,
-    cb : Option<NflogCallback>,
 }
 
 
@@ -134,7 +135,6 @@ impl Queue {
         return Queue {
             qh : std::ptr::null_mut(),
             gh : std::ptr::null_mut(),
-            cb: None,
         };
     }
 
@@ -308,10 +308,15 @@ impl Queue {
 
 
     /// Registers the callback triggered when a packet is received
-    pub fn set_callback(&mut self, cb: NflogCallback) {
-        self.cb = Some(cb);
-        let self_ptr = unsafe { std::mem::transmute(&*self) };
-        unsafe { nflog_callback_register(self.gh, real_callback, self_ptr); };
+    pub fn set_callback<F: Fn(Message) + Send + Sync + 'static>(&mut self, f: F) {
+        self._set_callback(Box::new(f))
+    }
+
+    fn _set_callback(&mut self, f: Box<LogCallback>) {
+        // Leaked forever. Might be possible to clean up existing callback on drop.
+        let cb_box = Box::into_raw(Box::new(f));
+        unsafe { nflog_callback_register(self.gh, Some(real_callback), cb_box as *mut _); };
+
     }
 
     /// Runs an infinite loop, waiting for packets and triggering the callback.
@@ -319,33 +324,36 @@ impl Queue {
         assert!(!self.gh.is_null());
 
         let fd = self.fd();
-        let mut buf : [u8;65536] = [0;65536];
+        let mut buf = vec![0; 0x10000];
         let buf_ptr = buf.as_mut_ptr() as *mut libc::c_void;
         let buf_len = buf.len() as libc::size_t;
 
         loop {
             let rc = unsafe { libc::recv(fd,buf_ptr,buf_len,0) };
-            if rc < 0 { panic!("error in recv()"); };
+            if rc < 0 { panic!("error in recv: {:?}", ::std::io::Error::last_os_error()); };
 
             let rv = unsafe { nflog_handle_packet(self.qh, buf_ptr, rc as libc::c_int) };
-            if rv < 0 { println!("error in nflog_handle_packet()"); }; // not critical
+            if rv != 0 { eprintln!("error in nflog_handle_packet(): {}", rv); }; // not critical
         }
     }
 }
 
-#[doc(hidden)]
-#[no_mangle]
-pub extern "C" fn real_callback(_g: *const libc::c_void, _nfmsg: *const libc::c_void, nfad: *const libc::c_void, data: *const libc::c_void ) {
-    let raw : *mut Queue = unsafe { std::mem::transmute(data) };
+extern "C" fn real_callback(_g: *const libc::c_void, _nfmsg: *const libc::c_void, nfad: *const libc::c_void, data: *const libc::c_void ) -> libc::c_int {
+    // Let default hook print error
+    let result = panic::catch_unwind(|| {
+        let cb = data as *mut Box<for<'a> Fn(Message<'a>) + Send + Sync + 'static>;
 
-    let ref mut q = unsafe { &*raw };
-    let mut msg = Message::new (nfad);
+        if cb.is_null() {
+            panic!("No callback provided");
+        }
+        let cb = unsafe { &*cb };
 
-    match q.cb {
-        None => panic!("no callback registered"),
-        Some(callback) => {
-            callback(&mut msg);
-            },
+        let msg = unsafe { Message::new(nfad) };
+        cb(msg);
+    });
+    match result {
+        Ok(_) => 0,
+        Err(_) => 1,
     }
 }
 

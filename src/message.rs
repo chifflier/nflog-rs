@@ -2,13 +2,16 @@ extern crate libc;
 
 use hwaddr::*;
 use std;
+use std::ptr;
+use std::marker::PhantomData;
 
 type NflogData = *const libc::c_void;
 
 /// Opaque struct `Message`: abstracts NFLOG data representing a packet data and metadata
-pub struct Message {
+pub struct Message<'a> {
     nfad : NflogData,
     l3_proto: u16,
+    _lifetime: PhantomData<&'a [u8]>,
 }
 
 #[derive(Debug)]
@@ -42,7 +45,7 @@ extern {
     fn nflog_get_outdev (nfad: NflogData) -> u32;
     fn nflog_get_physoutdev (nfad: NflogData) -> u32;
     fn nflog_get_packet_hw (nfad: NflogData) -> *const NfMsgPacketHw;
-    fn nflog_get_payload (nfad: NflogData, data: &*mut libc::c_void) -> libc::c_int;
+    fn nflog_get_payload (nfad: NflogData, data: *mut *mut libc::c_char) -> libc::c_int;
     fn nflog_get_prefix (nfad: NflogData) -> *const libc::c_char;
     fn nflog_get_uid (nfad: NflogData, uid: *mut u32) -> libc::c_int;
     fn nflog_get_gid (nfad: NflogData, uid: *mut u32) -> libc::c_int;
@@ -84,18 +87,18 @@ pub struct NfMsgPacketHdr {
     pub pad : u8,
 }
 
-impl Message {
+impl<'a> Message<'a> {
     /// Create a `Messsage` from a valid NflogData pointer
     ///
     /// **This function should never be called directly**
-    #[doc(hidden)]
-    pub fn new(nfad: *const libc::c_void) -> Message {
-        let msg_hdr = unsafe { nflog_get_msg_packet_hdr(nfad) as *const NfMsgPacketHdr };
+    pub(crate) unsafe fn new(nfad: *const libc::c_void) -> Message<'a> {
+        let msg_hdr = nflog_get_msg_packet_hdr(nfad) as *const NfMsgPacketHdr;
         assert!(!msg_hdr.is_null());
-        let l3_proto = u16::from_be( unsafe{(*msg_hdr).hw_protocol} );
+        let l3_proto = u16::from_be((*msg_hdr).hw_protocol);
         Message {
             nfad: nfad,
             l3_proto: l3_proto,
+            _lifetime: PhantomData,
         }
     }
 
@@ -103,15 +106,7 @@ impl Message {
     pub fn get_msg_packet_hdr(&self) -> NfMsgPacketHdr {
         let ptr = unsafe { nflog_get_msg_packet_hdr(self.nfad) };
         let c_hdr = ptr as *const NfMsgPacketHdr;
-        let hdr = unsafe {
-            // XXX copy structure ??
-            NfMsgPacketHdr {
-                hw_protocol: (*c_hdr).hw_protocol,
-                hook: (*c_hdr).hook,
-                pad: (*c_hdr).pad,
-            }
-        };
-        return hdr;
+        unsafe { ptr::read(c_hdr) }
     }
 
     /// Get the hardware link layer type from logging data
@@ -120,7 +115,7 @@ impl Message {
     }
 
     /// Get the hardware link layer header
-    pub fn get_packet_hwhdr<'a>(&'a self) -> &'a [u8] {
+    pub fn get_packet_hwhdr(&self) -> &'a [u8] {
         let c_len = unsafe { nflog_get_msg_packet_hwhdrlen(self.nfad) };
         let c_ptr = unsafe { nflog_get_msg_packet_hwhdr(self.nfad) };
         let data : &[u8] = unsafe { std::slice::from_raw_parts(c_ptr as *mut u8, c_len as usize) };
@@ -196,10 +191,10 @@ impl Message {
     /// The destination MAC address is not
     /// known until after POSTROUTING and a successful ARP request, so cannot
     /// currently be retrieved.
-    pub fn get_packet_hw<'a>(&'a self) -> Result<HwAddr<'a>,NflogError> {
+    pub fn get_packet_hw(&self) -> Result<HwAddr<'a>,NflogError> {
         let c_hw = unsafe { nflog_get_packet_hw(self.nfad) };
 
-        if c_hw == std::ptr::null() {
+        if c_hw == ptr::null() {
             return Err(NflogError::NoSuchAttribute);
         }
 
@@ -215,9 +210,9 @@ impl Message {
     /// Depending on set_mode, we may not have a payload
     /// The actual amount and type of data retrieved by this function will
     /// depend on the mode set with the `set_mode()` function.
-    pub fn get_payload<'a>(&'a self) -> &'a [u8] {
-        let c_ptr = std::ptr::null_mut();
-        let payload_len = unsafe { nflog_get_payload(self.nfad, &c_ptr) };
+    pub fn get_payload(&self) -> &'a [u8] {
+        let mut c_ptr = ptr::null_mut();
+        let payload_len = unsafe { nflog_get_payload(self.nfad, &mut c_ptr) };
         let payload : &[u8] = unsafe { std::slice::from_raw_parts(c_ptr as *mut u8, payload_len as usize) };
 
         return payload;
@@ -307,16 +302,14 @@ impl Message {
 }
 
 use std::fmt;
-use std::fmt::Write;
 
-impl fmt::Display for Message {
+impl<'a> fmt::Display for Message<'a> {
     fn fmt(&self, out: &mut fmt::Formatter) -> fmt::Result {
         let payload_data = self.get_payload();
-        let mut s = String::new();
         for &byte in payload_data {
-            write!(&mut s, "{:X} ", byte).unwrap();
+            write!(out, "{:02X} ", byte)?;
         }
-        write!(out, "{}", s)
+        Ok(())
     }
 }
 
