@@ -24,15 +24,13 @@ fn log_callback(msg: nflog::Message) {
 }
 
 fn main() {
-    let mut q = nflog::Queue::new();
+    let mut q = nflog::Queue::open().unwrap();
 
     println!("nflog example program: print packets metadata");
 
-    q.open();
-    q.unbind(libc::AF_INET); // ignore result, failure is not critical here
+    let _ = q.unbind(libc::AF_INET); // ignore result, failure is not critical here
 
-    let rc = q.bind(libc::AF_INET);
-    assert!(rc == 0);
+    q.bind(libc::AF_INET).unwrap();
 
     q.bind_group(0);
 
@@ -44,6 +42,4 @@ fn main() {
 
     q.set_callback(log_callback);
     q.run_loop();
-
-    q.close();
 }
