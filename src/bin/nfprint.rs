@@ -24,22 +24,22 @@ fn log_callback(msg: nflog::Message) {
 }
 
 fn main() {
-    let mut q = nflog::Queue::open().unwrap();
+    let queue = nflog::Queue::open().unwrap();
 
     println!("nflog example program: print packets metadata");
 
-    let _ = q.unbind(libc::AF_INET); // ignore result, failure is not critical here
+    let _ = queue.unbind(libc::AF_INET); // ignore result, failure is not critical here
 
-    q.bind(libc::AF_INET).unwrap();
+    queue.bind(libc::AF_INET).unwrap();
 
-    q.bind_group(0);
+    let mut group = queue.bind_group(0).unwrap();
 
-    q.set_mode(nflog::CopyMode::CopyPacket, 0xffff);
-    //q.set_nlbufsiz(0xffff);
-    //q.set_timeout(1500);
+    group.set_mode(nflog::CopyMode::CopyPacket, 0xffff);
+    //group.set_nlbufsiz(0xffff);
+    //group.set_timeout(1500);
 
-    q.set_flags(nflog::CfgFlags::CfgFlagsSeq);
+    group.set_flags(nflog::CfgFlags::CfgFlagsSeq);
 
-    q.set_callback(log_callback);
-    q.run_loop();
+    group.set_callback(log_callback);
+    queue.run_loop();
 }

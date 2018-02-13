@@ -36,17 +36,17 @@
 //! }
 //!
 //! fn main() {
-//!     let mut q = nflog::Queue::open().unwrap();
+//!     let mut queue = nflog::Queue::open().unwrap();
 //!
-//!     q.bind(libc::AF_INET).unwrap();
+//!     queue.bind(libc::AF_INET).unwrap();
 //!
-//!     q.bind_group(0);
+//!     let mut group = queue.bind_group(0).unwrap();
 //!
-//!     q.set_mode(nflog::CopyMode::CopyPacket, 0xffff);
-//!     q.set_flags(nflog::CfgFlags::CfgFlagsSeq);
+//!     group.set_mode(nflog::CopyMode::CopyPacket, 0xffff);
+//!     group.set_flags(nflog::CfgFlags::CfgFlagsSeq);
 //!
-//!     q.set_callback(callback);
-//!     q.run_loop();
+//!     group.set_callback(callback);
+//!     queue.run_loop();
 //!
 //! }
 //! ```
@@ -57,6 +57,7 @@ extern crate libc;
 use std::panic;
 use std::ptr;
 use std::io;
+use std::marker::PhantomData;
 
 pub use hwaddr::*;
 mod hwaddr;
@@ -120,11 +121,136 @@ const NFULNL_CFG_F_SEQ : u16         = 0x0001;
 const NFULNL_CFG_F_SEQ_GLOBAL : u16  = 0x0001;
 
 
+pub struct Group<'a> {
+    handle: NflogGroupHandle,
+    callback: Option<Box<Box<LogCallback>>>,
+    queue_lifetime: PhantomData<&'a Queue>,
+}
+
+impl<'a> Group<'a> {
+    fn new(handle: NflogGroupHandle) -> Group<'a> {
+        debug_assert!(!handle.is_null());
+        Group {
+            handle: handle,
+            callback: None,
+            queue_lifetime: PhantomData,
+        }
+    }
+
+    /// Set the amount of packet data that nflog copies to userspace
+    ///
+    /// Arguments:
+    ///
+    /// * `mode` - The part of the packet that we are interested in
+    /// * `range` - Size of the packet that we want to get
+    ///
+    /// `mode` can be one of:
+    ///
+    /// * `NFULNL_COPY_NONE` - do not copy any data
+    /// * `NFULNL_COPY_META` - copy only packet metadata
+    /// * `NFULNL_COPY_PACKET` - copy entire packet
+    pub fn set_mode(&self, mode: CopyMode, range: u32) {
+        debug_assert!(!self.handle.is_null());
+        let c_mode = match mode {
+            CopyMode::CopyNone => NFULNL_COPY_NONE,
+            CopyMode::CopyMeta => NFULNL_COPY_META,
+            CopyMode::CopyPacket => NFULNL_COPY_PACKET,
+        };
+        unsafe { nflog_set_mode(self.handle, c_mode, range); }
+    }
+
+    /// Sets the maximum time to push log buffer for this group
+    ///
+    /// Arguments:
+    ///
+    /// * `timeout` - Time to wait until the log buffer is pushed to userspace
+    ///
+    /// This function allows to set the maximum time that nflog waits until it
+    /// pushes the log buffer to userspace if no new logged packets have occured.
+    ///
+    /// Basically, nflog implements a buffer to reduce the computational cost of
+    /// delivering the log message to userspace.
+    pub fn set_timeout(&self, timeout: u32) {
+        assert!(!self.handle.is_null());
+        unsafe { nflog_set_timeout(self.handle, timeout); }
+    }
+
+    /// Sets the maximum amount of logs in buffer for this group
+    ///
+    /// Arguments:
+    ///
+    /// * `qthresh` - Maximum number of log entries
+    ///
+    /// This function determines the maximum number of log entries in the
+    /// buffer until it is pushed to userspace.
+    pub fn set_qthresh(&self, qthresh: u32) {
+        assert!(!self.handle.is_null());
+        unsafe { nflog_set_qthresh(self.handle, qthresh); }
+    }
+
+    /// Sets the size of the nflog buffer for this group
+    ///
+    /// Arguments:
+    ///
+    /// * `nlbufsiz` - Size of the nflog buffer
+    ///
+    /// This function sets the size (in bytes) of the buffer that is used to
+    /// stack log messages in nflog.
+    pub fn set_nlbufsiz(&self, nlbufsiz: u32) {
+        assert!(!self.handle.is_null());
+        unsafe { nflog_set_nlbufsiz(self.handle, nlbufsiz); }
+    }
+
+    /// Sets the nflog flags for this group
+    ///
+    /// Arguments:
+    ///
+    /// * `flags` - Flags that you want to set
+    ///
+    /// There are two existing flags:
+    ///
+    /// * `NFULNL_CFG_F_SEQ`: This enables local nflog sequence numbering.
+    /// * `NFULNL_CFG_F_SEQ_GLOBAL`: This enables global nflog sequence numbering.
+    pub fn set_flags(&self, flags: CfgFlags) {
+        assert!(!self.handle.is_null());
+        let c_flags : u16 = match flags {
+            CfgFlags::CfgFlagsSeq => NFULNL_CFG_F_SEQ,
+            CfgFlags::CfgFlagsSeqGlobal => NFULNL_CFG_F_SEQ_GLOBAL,
+        };
+        unsafe { nflog_set_flags(self.handle, c_flags); }
+    }
+
+
+    /// Registers the callback triggered when a packet is received
+    pub fn set_callback<F: Fn(Message) + Send + Sync + 'static>(&mut self, f: F) {
+        self._set_callback(Box::new(f))
+    }
+
+    fn _set_callback(&mut self, f: Box<LogCallback>) {
+        assert!(!self.handle.is_null());
+        // Double box, so the value is a single pointer, not 2 pointers
+        let cb_box = Box::new(f);
+        unsafe { nflog_callback_register(self.handle, Some(real_callback), &*cb_box as *const Box<_> as *mut libc::c_void); };
+        self.callback = Some(cb_box);
+    }
+
+    pub fn clear_callback(&mut self) {
+        assert!(!self.handle.is_null());
+        unsafe { nflog_callback_register(self.handle, None, ptr::null_mut()); };
+        self.callback = None;
+    }
+
+}
+
+impl<'a> Drop for Group<'a> {
+    fn drop(&mut self) {
+        unsafe { nflog_unbind_group(self.handle); }
+    }
+}
+
 /// Opaque struct `Queue`: abstracts an NFLOG queue
 pub struct Queue {
-    queue_handle: NflogHandle,
-    group_handle: NflogGroupHandle,
-    current_callback: *mut Box<LogCallback>,
+    handle: NflogHandle,
 }
 
 
@@ -141,9 +267,7 @@ impl Queue {
             return Err(io::Error::last_os_error());
         }
         Ok(Queue {
-            queue_handle: handle,
-            group_handle: ptr::null_mut(),
-            current_callback: ptr::null_mut(),
+            handle: handle,
         })
     }
 
@@ -160,9 +284,9 @@ impl Queue {
     ///
     /// **Requires root privileges**
     pub fn bind(&self, protocol_family: libc::c_int) -> io::Result<()> {
-        debug_assert!(!self.queue_handle.is_null());
+        debug_assert!(!self.handle.is_null());
 
-        let result = unsafe { nflog_bind_pf(self.queue_handle, protocol_family) };
+        let result = unsafe { nflog_bind_pf(self.handle, protocol_family) };
         if result == 0 {
             Ok(())
         } else {
@@ -183,8 +307,8 @@ impl Queue {
     ///
     /// **Requires root privileges**
     pub fn unbind(&self, protocol_family: libc::c_int) -> io::Result<()> {
-        debug_assert!(!self.queue_handle.is_null());
-        let result = unsafe { nflog_unbind_pf(self.queue_handle, protocol_family) };
+        debug_assert!(!self.handle.is_null());
+        let result = unsafe { nflog_unbind_pf(self.handle, protocol_family) };
         if result == 0 {
             Ok(())
         } else {
@@ -198,8 +322,8 @@ impl Queue {
     /// communication over the netlink connection associated with the given log
     /// connection handle.
     pub fn fd(&self) -> i32 {
-        debug_assert!(!self.queue_handle.is_null());
-        unsafe { nflog_fd(self.queue_handle) }
+        debug_assert!(!self.handle.is_null());
+        unsafe { nflog_fd(self.handle) }
     }
 
     ///  Binds a new handle to a specific group number.
@@ -207,140 +331,18 @@ impl Queue {
     /// Arguments:
     ///
     /// * `num` - The number of the group to bind to
-    pub fn bind_group(&mut self, num: u16) {
-        debug_assert!(!self.queue_handle.is_null());
-        self.group_handle = unsafe { nflog_bind_group(self.queue_handle, num) }
-    }
+    pub fn bind_group(&self, num: u16) -> io::Result<Group> {
+        debug_assert!(!self.handle.is_null());
 
-    /// Unbinds a group handle
-    ///
-    /// Arguments:
-    ///
-    /// * `num` - The number of the group to unbind to
-    pub fn unbind_group(&mut self) {
-        if self.group_handle.is_null() {
-            return;
+        let group_handle = unsafe { nflog_bind_group(self.handle, num) };
+        if group_handle.is_null() {
+            return Err(io::Error::last_os_error());
         }
-        unsafe { nflog_unbind_group(self.group_handle); }
-        self.group_handle = ptr::null_mut();
-    }
-
-    /// Set the amount of packet data that nflog copies to userspace
-    ///
-    /// Arguments:
-    ///
-    /// * `mode` - The part of the packet that we are interested in
-    /// * `range` - Size of the packet that we want to get
-    ///
-    /// `mode` can be one of:
-    ///
-    /// * `NFULNL_COPY_NONE` - do not copy any data
-    /// * `NFULNL_COPY_META` - copy only packet metadata
-    /// * `NFULNL_COPY_PACKET` - copy entire packet
-    pub fn set_mode(&self, mode: CopyMode, range: u32) {
-        assert!(!self.group_handle.is_null());
-        let c_mode = match mode {
-            CopyMode::CopyNone => NFULNL_COPY_NONE,
-            CopyMode::CopyMeta => NFULNL_COPY_META,
-            CopyMode::CopyPacket => NFULNL_COPY_PACKET,
-        };
-        unsafe { nflog_set_mode(self.group_handle, c_mode, range); }
-    }
-
-    /// Sets the maximum time to push log buffer for this group
-    ///
-    /// Arguments:
-    ///
-    /// * `timeout` - Time to wait until the log buffer is pushed to userspace
-    ///
-    /// This function allows to set the maximum time that nflog waits until it
-    /// pushes the log buffer to userspace if no new logged packets have occured.
-    ///
-    /// Basically, nflog implements a buffer to reduce the computational cost of
-    /// delivering the log message to userspace.
-    pub fn set_timeout(&self, timeout: u32) {
-        assert!(!self.group_handle.is_null());
-        unsafe { nflog_set_timeout(self.group_handle, timeout); }
-    }
-
-    /// Sets the maximum amount of logs in buffer for this group
-    ///
-    /// Arguments:
-    ///
-    /// * `qthresh` - Maximum number of log entries
-    ///
-    /// This function determines the maximum number of log entries in the
-    /// buffer until it is pushed to userspace.
-    pub fn set_qthresh(&self, qthresh: u32) {
-        assert!(!self.group_handle.is_null());
-        unsafe { nflog_set_qthresh(self.group_handle, qthresh); }
-    }
-
-    /// Sets the size of the nflog buffer for this group
-    ///
-    /// Arguments:
-    ///
-    /// * `nlbufsiz` - Size of the nflog buffer
-    ///
-    /// This function sets the size (in bytes) of the buffer that is used to
-    /// stack log messages in nflog.
-    pub fn set_nlbufsiz(&self, nlbufsiz: u32) {
-        assert!(!self.group_handle.is_null());
-        unsafe { nflog_set_nlbufsiz(self.group_handle, nlbufsiz); }
-    }
-
-    /// Sets the nflog flags for this group
-    ///
-    /// Arguments:
-    ///
-    /// * `flags` - Flags that you want to set
-    ///
-    /// There are two existing flags:
-    ///
-    /// * `NFULNL_CFG_F_SEQ`: This enables local nflog sequence numbering.
-    /// * `NFULNL_CFG_F_SEQ_GLOBAL`: This enables global nflog sequence numbering.
-    pub fn set_flags(&self, flags: CfgFlags) {
-        assert!(!self.group_handle.is_null());
-        let c_flags : u16 = match flags {
-            CfgFlags::CfgFlagsSeq => NFULNL_CFG_F_SEQ,
-            CfgFlags::CfgFlagsSeqGlobal => NFULNL_CFG_F_SEQ_GLOBAL,
-        };
-        unsafe { nflog_set_flags(self.group_handle, c_flags); }
-    }
-
-
-    /// Registers the callback triggered when a packet is received
-    pub fn set_callback<F: Fn(Message) + Send + Sync + 'static>(&mut self, f: F) {
-        self._set_callback(Box::new(f))
-    }
-
-    fn _set_callback(&mut self, f: Box<LogCallback>) {
-        assert!(!self.group_handle.is_null());
-        // Double box, so the value is a single pointer, not 2 pointers
-        let cb_box = Box::into_raw(Box::new(f));
-        unsafe { nflog_callback_register(self.group_handle, Some(real_callback), cb_box as *mut _); };
-        if !self.current_callback.is_null() {
-            // drop existing callback
-            let _ = unsafe { Box::from_raw(self.current_callback) };
-        }
-        self.current_callback = cb_box;
-    }
-
-    pub fn clear_callback(&mut self) {
-        if self.current_callback.is_null() {
-            return;
-        }
-        assert!(!self.group_handle.is_null());
-        unsafe { nflog_callback_register(self.group_handle, None, ptr::null_mut()); };
-        // drop existing callback
-        let _ = unsafe { Box::from_raw(self.current_callback) };
-        self.current_callback = ptr::null_mut();
+        Ok(Group::new(group_handle))
     }
 
     /// Runs an infinite loop, waiting for packets and triggering the callback.
     pub fn run_loop(&self) -> ! {
-        assert!(!self.group_handle.is_null());
-
         let fd = self.fd();
         let mut buf = vec![0; 0x10000];
         let buf_ptr = buf.as_mut_ptr() as *mut libc::c_void;
@@ -350,7 +352,7 @@ impl Queue {
             let rc = unsafe { libc::recv(fd,buf_ptr,buf_len,0) };
             if rc < 0 { panic!("error in recv: {:?}", ::std::io::Error::last_os_error()); };
 
-            let rv = unsafe { nflog_handle_packet(self.queue_handle, buf_ptr, rc as libc::c_int) };
+            let rv = unsafe { nflog_handle_packet(self.handle, buf_ptr, rc as libc::c_int) };
             if rv != 0 { eprintln!("error in nflog_handle_packet(): {}", rv); }; // not critical
         }
     }
@@ -358,16 +360,9 @@ impl Queue {
 
 impl Drop for Queue {
     fn drop(&mut self) {
-        debug_assert!(!self.queue_handle.is_null());
+        debug_assert!(!self.handle.is_null());
 
-        self.unbind_group();
-        
-        // No need to clear the callback, unbinding from the group should do that for us
-        if !self.current_callback.is_null() {
-            let _ = unsafe { Box::from_raw(self.current_callback) };
-        }
-
-        unsafe { nflog_close(self.queue_handle) };
+        unsafe { nflog_close(self.handle) };
     }
 }
 
@@ -401,7 +396,7 @@ mod tests {
     fn nflog_open() {
         let q = ::Queue::open().unwrap();
 
-        let raw = q.queue_handle as *const i32;
+        let raw = q.handle as *const i32;
         assert!(!raw.is_null());
         println!("nfq_open: 0x{:x}", unsafe{*raw});
     }
@@ -411,10 +406,10 @@ mod tests {
     fn nflog_bind() {
         let q = ::Queue::open().unwrap();
 
-        let raw = q.queue_handle as *const i32;
+        let raw = q.handle as *const i32;
         println!("nfq_open: 0x{:x}", unsafe{*raw});
 
-        assert!(!q.queue_handle.is_null());
+        assert!(!q.handle.is_null());
 
         q.bind(libc::AF_INET).unwrap();
     }
