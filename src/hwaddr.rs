@@ -1,27 +1,38 @@
 use std::fmt;
+use std::fmt::Write;
 
 /// Hardware (Ethernet) address
-pub struct HwAddr<'a> {
-    _hw: &'a [u8],
+#[derive(Debug, Copy, Clone, Default)]
+pub struct HwAddr {
+    pub(crate) len: u8,
+    pub(crate) inner: [u8; 8],
 }
 
-impl<'a> HwAddr<'a> {
-    pub fn new(s: &'a [u8]) -> HwAddr<'a> {
-        HwAddr {
-            _hw: s,
-        }
+impl AsRef<[u8]> for HwAddr {
+    fn as_ref(&self) -> &[u8] {
+        &self.inner[..self.len as usize]
     }
 }
 
-impl<'a> fmt::Display for HwAddr<'a> {
+impl fmt::Display for HwAddr {
     fn fmt(&self, out: &mut fmt::Formatter) -> fmt::Result {
-        let s = self._hw.iter().fold(
-            String::new(),
-            |acc, &b| {
-                (if acc.len()>0 {acc + ":"} else {acc}) + &format!("{:02x}",b)
+        let len = self.len as usize;
+        if len == 0 {
+            return Ok(());
+        }
+        // Two digits per byte, and 1 less colon than number of bytes
+        let size = len * 2 + (len - 1);
+        let s = self.inner[..len].iter().fold(
+            String::with_capacity(size),
+            |mut acc, &b| {
+                if !acc.is_empty() {
+                    acc.push(':');
+                }
+                write!(acc, "{:02x}", b);
+                acc
             }
         );
-        return write!(out, "{}", s);
+        out.write_str(&s)
     }
 }
 

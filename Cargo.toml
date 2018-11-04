@@ -7,7 +7,12 @@ repository = "https://github.com/chifflier/nflog-rs.git"
 
 name = "nflog"
 version = "0.9.0"
-authors = [ "Pierre Chifflier <chifflier@wzdftpd.net>" ]
+authors = [ "Pierre Chifflier <chifflier@wzdftpd.net>", "Zachary Dremann <dremann@gmail.com" ]
 
 [dependencies]
-libc = "0.2.0"
+libc = "0.2"
+nflog-sys = { path = "nflog-sys" }
+bitflags = "1.0"
+
+[workspace]
+members = ["nflog-sys", "nfnetlink-sys"]

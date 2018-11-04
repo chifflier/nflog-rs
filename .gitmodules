@@ -1,0 +1,3 @@
+[submodule "nfnetlink-sys/src/libnfnetlink"]
+	path = nfnetlink-sys/src/libnfnetlink
+	url = git://git.netfilter.org/libnfnetlink

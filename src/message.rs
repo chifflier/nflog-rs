@@ -1,148 +1,92 @@
-extern crate libc;
+use libc;
+
+use nflog_sys::*;
 
 use hwaddr::*;
 use std;
-use std::ptr;
+use std::time;
 use std::marker::PhantomData;
 
-type NflogData = *const libc::c_void;
-
 /// Opaque struct `Message`: abstracts NFLOG data representing a packet data and metadata
+#[derive(Debug)]
 pub struct Message<'a> {
-    nfad : NflogData,
-    l3_proto: u16,
-    _lifetime: PhantomData<&'a [u8]>,
+    inner: *mut nflog_data,
+    _lifetime: PhantomData<&'a nflog_data>
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub enum NflogError {
     NoSuchAttribute,
 }
 
-/// XML formatting flags
-pub enum XMLFormatFlags {
-    XmlPrefix,
-    XmlHw,
-    XmlMark,
-    XmlDev,
-    XmlPhysDev,
-    XmlPayload,
-    XmlTime,
-    XmlAll,
+bitflags! {
+    /// XML formatting flags
+    pub struct XMLFormat: u32 {
+        const Prefix = NFLOG_XML_PREFIX;
+        const Hw = NFLOG_XML_HW;
+        const Mark = NFLOG_XML_MARK;
+        const Dev = NFLOG_XML_DEV;
+        const PhysDev = NFLOG_XML_PHYSDEV;
+        const Payload = NFLOG_XML_PAYLOAD;
+        const Time = NFLOG_XML_TIME;
+        const All = NFLOG_XML_ALL;
+    }
 }
 
-#[link(name = "netfilter_log")]
-extern {
-    // message parsing functions
-    fn nflog_get_msg_packet_hdr(nfad: NflogData) -> *const libc::c_void;
-    fn nflog_get_hwtype (nfad: NflogData) -> u16;
-    fn nflog_get_msg_packet_hwhdrlen (nfad: NflogData) -> u16;
-    fn nflog_get_msg_packet_hwhdr (nfad: NflogData) -> *const libc::c_char;
-    fn nflog_get_nfmark (nfad: NflogData) -> u32;
-    fn nflog_get_timestamp (nfad: NflogData, tv: *mut libc::timeval) -> u32;
-    fn nflog_get_indev (nfad: NflogData) -> u32;
-    fn nflog_get_physindev (nfad: NflogData) -> u32;
-    fn nflog_get_outdev (nfad: NflogData) -> u32;
-    fn nflog_get_physoutdev (nfad: NflogData) -> u32;
-    fn nflog_get_packet_hw (nfad: NflogData) -> *const NfMsgPacketHw;
-    fn nflog_get_payload (nfad: NflogData, data: *mut *mut libc::c_char) -> libc::c_int;
-    fn nflog_get_prefix (nfad: NflogData) -> *const libc::c_char;
-    fn nflog_get_uid (nfad: NflogData, uid: *mut u32) -> libc::c_int;
-    fn nflog_get_gid (nfad: NflogData, uid: *mut u32) -> libc::c_int;
-    fn nflog_get_seq (nfad: NflogData, uid: *mut u32) -> libc::c_int;
-    fn nflog_get_seq_global (nfad: NflogData, uid: *mut u32) -> libc::c_int;
-
-    // printing functions
-    fn nflog_snprintf_xml (buf: *mut u8, rem: libc::size_t, tb: NflogData, flags: libc::c_uint) -> libc::c_int;
-}
-
-const NFLOG_XML_PREFIX  : u32  = (1 << 0);
-const NFLOG_XML_HW      : u32  = (1 << 1);
-const NFLOG_XML_MARK    : u32  = (1 << 2);
-const NFLOG_XML_DEV     : u32  = (1 << 3);
-const NFLOG_XML_PHYSDEV : u32  = (1 << 4);
-const NFLOG_XML_PAYLOAD : u32  = (1 << 5);
-const NFLOG_XML_TIME    : u32  = (1 << 6);
-const NFLOG_XML_ALL     : u32  = (!0u32);
-
-/// Hardware address
-#[repr(C)]
-struct NfMsgPacketHw {
-    /// Hardware address length
-    pub hw_addrlen : u16,
-    /// Padding (should be ignored)
-    pub _pad : u16,
-    /// The hardware address
-    pub hw_addr : [u8;8],
-}
-
-/// Metaheader wrapping a packet
-#[repr(C)]
-pub struct NfMsgPacketHdr {
-    /// hw protocol (network order)
-    pub hw_protocol : u16,
-    /// Netfilter hook
-    pub hook : u8,
-    /// Padding (should be ignored)
-    pub pad : u8,
+impl Default for XMLFormat {
+    fn default() -> Self {
+        XMLFormat::All
+    }
 }
 
 impl<'a> Message<'a> {
     /// Create a `Messsage` from a valid NflogData pointer
-    ///
-    /// **This function should never be called directly**
-    pub(crate) unsafe fn new(nfad: *const libc::c_void) -> Message<'a> {
-        let msg_hdr = nflog_get_msg_packet_hdr(nfad) as *const NfMsgPacketHdr;
-        assert!(!msg_hdr.is_null());
-        let l3_proto = u16::from_be((*msg_hdr).hw_protocol);
+    /// Unsafe because the lifetime is made up
+    pub(crate) unsafe fn new(inner: *mut nflog_data) -> Self {
+        assert!(!inner.is_null());
         Message {
-            nfad: nfad,
-            l3_proto: l3_proto,
+            inner,
             _lifetime: PhantomData,
         }
     }
 
-    /// Return the metaheader that wraps the packet
-    pub fn get_msg_packet_hdr(&self) -> NfMsgPacketHdr {
-        let ptr = unsafe { nflog_get_msg_packet_hdr(self.nfad) };
-        let c_hdr = ptr as *const NfMsgPacketHdr;
-        unsafe { ptr::read(c_hdr) }
-    }
-
     /// Get the hardware link layer type from logging data
     pub fn get_hwtype(&self) -> u16 {
-        return unsafe { nflog_get_hwtype(self.nfad) };
+        unsafe { nflog_get_hwtype(self.inner) }
     }
 
     /// Get the hardware link layer header
     pub fn get_packet_hwhdr(&self) -> &'a [u8] {
-        let c_len = unsafe { nflog_get_msg_packet_hwhdrlen(self.nfad) };
-        let c_ptr = unsafe { nflog_get_msg_packet_hwhdr(self.nfad) };
-        let data : &[u8] = unsafe { std::slice::from_raw_parts(c_ptr as *mut u8, c_len as usize) };
+        let len = unsafe { nflog_get_msg_packet_hwhdrlen(self.inner) };
+        let ptr = unsafe { nflog_get_msg_packet_hwhdr(self.inner) };
+        let data: &[u8] = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
         return data;
     }
 
     /// Returns the layer 3 protocol/EtherType of the packet (i.e. 0x0800 is IPv4)
     pub fn get_l3_proto(&self) -> u16 {
-        self.l3_proto
+        let packet_hdr = unsafe { *nflog_get_msg_packet_hdr(self.inner) };
+        u16::from_be(packet_hdr.hw_protocol)
     }
 
     /// Get the packet mark
     pub fn get_nfmark(&self) -> u32 {
-        return unsafe { nflog_get_nfmark(self.nfad) };
+        unsafe { nflog_get_nfmark(self.inner) }
     }
 
     /// Get the packet timestamp
-    pub fn get_timestamp(&self) -> Result<libc::timeval,NflogError> {
+    pub fn get_timestamp(&self) -> Result<time::SystemTime, NflogError> {
         let mut tv = libc::timeval {
             tv_sec: 0,
             tv_usec: 0,
         };
-        let rc = unsafe { nflog_get_timestamp(self.nfad,&mut tv) };
-        match rc {
-            0 => Ok(tv),
-            _ => Err(NflogError::NoSuchAttribute),
+        let rc = unsafe { nflog_get_timestamp(self.inner, &mut tv) };
+        if rc != 0 {
+            return Err(NflogError::NoSuchAttribute);
         }
+
+        let tv_duration = time::Duration::new(tv.tv_sec as u64, tv.tv_usec as u32 * 1000);
+        Ok(time::UNIX_EPOCH + tv_duration)
     }
 
     /// Get the interface that the packet was received through
@@ -151,7 +95,7 @@ impl<'a> Message<'a> {
     /// If the returned index is 0, the packet was locally generated or the
     /// input interface is not known (ie. `POSTROUTING`?).
     pub fn get_indev(&self) -> u32 {
-        return unsafe { nflog_get_indev(self.nfad) };
+        unsafe { nflog_get_indev(self.inner) }
     }
 
     /// Get the physical interface that the packet was received through
@@ -160,7 +104,7 @@ impl<'a> Message<'a> {
     /// If the returned index is 0, the packet was locally generated or the
     /// physical input interface is no longer known (ie. `POSTROUTING`?).
     pub fn get_physindev(&self) -> u32 {
-        return unsafe { nflog_get_physindev(self.nfad) };
+        unsafe { nflog_get_physindev(self.inner) }
     }
 
     /// Get the interface that the packet will be routed out
@@ -169,7 +113,7 @@ impl<'a> Message<'a> {
     /// If the returned index is 0, the packet is destined to localhost or
     /// the output interface is not yet known (ie. `PREROUTING`?).
     pub fn get_outdev(&self) -> u32 {
-        return unsafe { nflog_get_outdev(self.nfad) };
+        unsafe { nflog_get_outdev(self.inner) }
     }
 
     /// Get the physical interface that the packet will be routed out
@@ -178,7 +122,7 @@ impl<'a> Message<'a> {
     /// If the returned index is 0, the packet is destined to localhost or
     /// the physical output interface is not yet known (ie. `PREROUTING`?).
     pub fn get_physoutdev(&self) -> u32 {
-        return unsafe { nflog_get_physoutdev(self.nfad) };
+        unsafe { nflog_get_physoutdev(self.inner) }
     }
 
     /// Get hardware address
@@ -191,18 +135,21 @@ impl<'a> Message<'a> {
     /// The destination MAC address is not
     /// known until after POSTROUTING and a successful ARP request, so cannot
     /// currently be retrieved.
-    pub fn get_packet_hw(&self) -> Result<HwAddr<'a>,NflogError> {
-        let c_hw = unsafe { nflog_get_packet_hw(self.nfad) };
+    pub fn get_packet_hw(&self) -> Result<HwAddr, NflogError> {
+        let c_hw = unsafe { nflog_get_packet_hw(self.inner) };
 
-        if c_hw == ptr::null() {
+        if c_hw.is_null() {
             return Err(NflogError::NoSuchAttribute);
         }
 
-        let c_len = u16::from_be(unsafe{(*c_hw).hw_addrlen}) as usize;
-        match c_len {
-            0 => Err(NflogError::NoSuchAttribute),
-            _ => Ok( HwAddr::new(unsafe{&((*c_hw).hw_addr)[0..c_len]})),
+        let c_len = u16::from_be(unsafe{(*c_hw).hw_addrlen});
+        if c_len == 0 {
+            return Err(NflogError::NoSuchAttribute);
         }
+        Ok(HwAddr{
+            len: c_len as u8,
+            inner: unsafe {(*c_hw).hw_addr},
+        })
     }
 
     /// Get payload
@@ -211,9 +158,9 @@ impl<'a> Message<'a> {
     /// The actual amount and type of data retrieved by this function will
     /// depend on the mode set with the `set_mode()` function.
     pub fn get_payload(&self) -> &'a [u8] {
-        let mut c_ptr = ptr::null_mut();
-        let payload_len = unsafe { nflog_get_payload(self.nfad, &mut c_ptr) };
-        let payload : &[u8] = unsafe { std::slice::from_raw_parts(c_ptr as *mut u8, payload_len as usize) };
+        let mut c_ptr = std::ptr::null_mut();
+        let payload_len = unsafe { nflog_get_payload(self.inner, &mut c_ptr) };
+        let payload = unsafe { std::slice::from_raw_parts(c_ptr as *const u8, payload_len as usize) };
 
         return payload;
     }
@@ -221,7 +168,7 @@ impl<'a> Message<'a> {
     /// Return the log prefix as configured using `--nflog-prefix "..."`
     /// in iptables rules.
     pub fn get_prefix(&self) -> Result<String,std::str::Utf8Error> {
-        let c_buf: *const libc::c_char = unsafe { nflog_get_prefix(self.nfad) };
+        let c_buf: *const libc::c_char = unsafe { nflog_get_prefix(self.inner) };
         let c_str = unsafe { std::ffi::CStr::from_ptr(c_buf) };
         match c_str.to_str() {
             Err(e) => Err(e),
@@ -230,19 +177,19 @@ impl<'a> Message<'a> {
     }
 
     /// Available only for outgoing packets
-    pub fn get_uid(&self) -> Result<u32,&str> {
+    pub fn get_uid(&self) -> Result<u32,NflogError> {
         let mut uid =0;
-        let rc = unsafe { nflog_get_uid(self.nfad,&mut uid) };
+        let rc = unsafe { nflog_get_uid(self.inner,&mut uid) };
         match rc {
             0 => Ok(uid),
-            _ => Err("nflog_get_uid"),
+            _ => Err(NflogError::NoSuchAttribute),
         }
     }
 
     /// Available only for outgoing packets
     pub fn get_gid(&self) -> Result<u32,NflogError> {
         let mut gid =0;
-        let rc = unsafe { nflog_get_gid(self.nfad,&mut gid) };
+        let rc = unsafe { nflog_get_gid(self.inner,&mut gid) };
         match rc {
             0 => Ok(gid),
             _ => Err(NflogError::NoSuchAttribute),
@@ -252,10 +199,10 @@ impl<'a> Message<'a> {
     /// Get the local nflog sequence number
     /// You must enable this via `set_flags(nflog::CfgFlags::CfgFlagsSeq)`.
     pub fn get_seq(&self) -> Result<u32,NflogError> {
-        let mut uid =0;
-        let rc = unsafe { nflog_get_seq(self.nfad,&mut uid) };
+        let mut seq =0;
+        let rc = unsafe { nflog_get_seq(self.inner,&mut seq) };
         match rc {
-            0 => Ok(uid),
+            0 => Ok(seq),
             _ => Err(NflogError::NoSuchAttribute),
         }
     }
@@ -263,54 +210,33 @@ impl<'a> Message<'a> {
     /// Get the global nflog sequence number
     /// You must enable this via `set_flags(nflog::CfgFlags::CfgFlagsSeqGlobal)`.
     pub fn get_seq_global(&self) -> Result<u32,NflogError> {
-        let mut uid =0;
-        let rc = unsafe { nflog_get_seq_global(self.nfad,&mut uid) };
+        let mut seq =0;
+        let rc = unsafe { nflog_get_seq_global(self.inner,&mut seq) };
         match rc {
-            0 => Ok(uid),
+            0 => Ok(seq),
             _ => Err(NflogError::NoSuchAttribute),
         }
     }
 
     /// Print the logged packet in XML format into a buffer
-    pub fn as_xml_str(&self, flags: &[XMLFormatFlags]) -> Result<String,std::str::Utf8Error> {
+    pub fn as_xml_str(&self, flags: XMLFormat) -> Result<String, std::string::FromUtf8Error> {
         // if buffer size is smaller than output, nflog_snprintf_xml will fail
-        let mut buf : [u8;65536] = [0;65536];
-        let buf_ptr = buf.as_mut_ptr() as *mut libc::c_uchar;
-        let buf_len = buf.len() as libc::size_t;
+        let mut buf = Vec::with_capacity(0xFFFF);
 
-        let xml_flags = flags.iter().map(|flag| {
-            match *flag {
-                XMLFormatFlags::XmlPrefix => NFLOG_XML_PREFIX,
-                XMLFormatFlags::XmlHw => NFLOG_XML_HW,
-                XMLFormatFlags::XmlMark => NFLOG_XML_MARK,
-                XMLFormatFlags::XmlDev => NFLOG_XML_DEV,
-                XMLFormatFlags::XmlPhysDev => NFLOG_XML_PHYSDEV,
-                XMLFormatFlags::XmlPayload => NFLOG_XML_PAYLOAD,
-                XMLFormatFlags::XmlTime => NFLOG_XML_TIME,
-                XMLFormatFlags::XmlAll => NFLOG_XML_ALL,
-            }
-        }).fold(0u32, |acc, i| acc | i);
-
-        let rc = unsafe { nflog_snprintf_xml(buf_ptr, buf_len, self.nfad, xml_flags) };
+        let mut rc = unsafe { nflog_snprintf_xml(buf.as_mut_ptr() as *mut _, buf.capacity(), self.inner, flags.bits() as _) };
         if rc < 0 { panic!("nflog_snprintf_xml"); } // XXX see snprintf error codes
+        if rc as usize > buf.capacity() {
+            let diff = rc as usize - buf.capacity();
+            buf.reserve_exact(diff);
+            rc = unsafe { nflog_snprintf_xml(buf.as_mut_ptr() as *mut _, buf.capacity(), self.inner, flags.bits() as _) };
+            if rc < 0 { panic!("nflog_snprintf_xml"); } // XXX see snprintf error codes
+        }
 
-        match std::str::from_utf8(&buf) {
-            Ok(v) => Ok(v.to_string()),
+        unsafe { buf.set_len(rc as usize) };
+        buf.shrink_to_fit();
+        match String::from_utf8(buf) {
+            Ok(v) => Ok(v),
             Err(e) => Err(e),
         }
     }
 }
-
-use std::fmt;
-
-impl<'a> fmt::Display for Message<'a> {
-    fn fmt(&self, out: &mut fmt::Formatter) -> fmt::Result {
-        let payload_data = self.get_payload();
-        for &byte in payload_data {
-            write!(out, "{:02X} ", byte)?;
-        }
-        Ok(())
-    }
-}
-
-

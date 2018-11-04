@@ -1,0 +1,17 @@
+[package]
+name = "nflog-sys"
+version = "0.1.0"
+authors = ["Zachary Dremann <dremann@gmail.com>"]
+links = "netfilter_log"
+
+[dependencies]
+libc = "0.2.43"
+nfnetlink-sys = { path = "../nfnetlink-sys" }
+
+[build-dependencies]
+cc = "1.0"
+pkg-config = "0.3"
+
+[features]
+default = []
+static-nflog = []
