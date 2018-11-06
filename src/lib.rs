@@ -109,9 +109,6 @@ pub struct Group<'a> {
     queue_lifetime: PhantomData<&'a Queue>,
 }
 
-unsafe impl<'a> Send for Group<'a> {}
-unsafe impl<'a> Sync for Group<'a> {}
-
 impl<'a> fmt::Debug for Group<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         f.debug_struct("Group")
@@ -230,9 +227,6 @@ impl<'a> Drop for Group<'a> {
 pub struct Queue {
     handle: *mut nflog_handle,
 }
-
-unsafe impl Send for Queue {}
-unsafe impl Sync for Queue {}
 
 impl Queue {
     /// Opens a NFLOG Queue
@@ -394,7 +388,7 @@ mod tests {
         let q = Queue::open().unwrap();
 
         let raw = q.handle;
-        println!("nfq_open: 0x{:p}", raw);
+        println!("nfq_open: {:p}", raw);
 
         assert!(!q.handle.is_null());
 
