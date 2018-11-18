@@ -40,8 +40,8 @@ impl Default for XMLFormat {
 }
 
 impl<'a> Message<'a> {
-    /// Create a `Messsage` from a valid NflogData pointer
-    /// Unsafe because the lifetime is made up
+    /// Create a `Message` from a valid nflog_data pointer
+    /// Unsafe because the lifetime is made up, and the pointer must be valid
     pub(crate) unsafe fn new(inner: *mut nflog_data) -> Self {
         assert!(!inner.is_null());
         Message {
