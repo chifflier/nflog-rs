@@ -58,7 +58,7 @@ extern crate nflog_sys;
 extern crate bitflags;
 
 use std::panic;
-use std::ptr;
+use std::ptr::{self, NonNull};
 use std::io;
 use std::fmt;
 use std::os::unix::io::RawFd;
@@ -103,7 +103,7 @@ bitflags!{
 }
 
 pub struct Group<'a> {
-    handle: *mut nflog_g_handle,
+    handle: NonNull<nflog_g_handle>,
     group: u16,
     callback: Option<Box<Callback>>,
     queue_lifetime: PhantomData<&'a Queue>,
@@ -132,9 +132,8 @@ impl<'a> Group<'a> {
     /// * `NFULNL_COPY_META` - copy only packet metadata
     /// * `NFULNL_COPY_PACKET` - copy entire packet
     pub fn set_mode(&mut self, mode: CopyMode, range: u32) {
-        debug_assert!(!self.handle.is_null());
         let c_mode = mode as u8;
-        unsafe { nflog_set_mode(self.handle, c_mode, range); }
+        unsafe { nflog_set_mode(self.handle.as_ptr(), c_mode, range); }
     }
 
     /// Sets the maximum time to push log buffer for this group
@@ -149,8 +148,7 @@ impl<'a> Group<'a> {
     /// Basically, nflog implements a buffer to reduce the computational cost of
     /// delivering the log message to userspace.
     pub fn set_timeout(&mut self, timeout: u32) {
-        debug_assert!(!self.handle.is_null());
-        unsafe { nflog_set_timeout(self.handle, timeout); }
+        unsafe { nflog_set_timeout(self.handle.as_ptr(), timeout); }
     }
 
     /// Sets the maximum amount of logs in buffer for this group
@@ -162,8 +160,7 @@ impl<'a> Group<'a> {
     /// This function determines the maximum number of log entries in the
     /// buffer until it is pushed to userspace.
     pub fn set_qthresh(&mut self, qthresh: u32) {
-        debug_assert!(!self.handle.is_null());
-        unsafe { nflog_set_qthresh(self.handle, qthresh); }
+        unsafe { nflog_set_qthresh(self.handle.as_ptr(), qthresh); }
     }
 
     /// Sets the size of the nflog buffer for this group
@@ -175,8 +172,7 @@ impl<'a> Group<'a> {
     /// This function sets the size (in bytes) of the buffer that is used to
     /// stack log messages in nflog.
     pub fn set_nlbufsiz(&mut self, nlbufsiz: u32) {
-        debug_assert!(!self.handle.is_null());
-        unsafe { nflog_set_nlbufsiz(self.handle, nlbufsiz); }
+        unsafe { nflog_set_nlbufsiz(self.handle.as_ptr(), nlbufsiz); }
     }
 
     /// Sets the nflog flags for this group
@@ -190,24 +186,20 @@ impl<'a> Group<'a> {
     /// * `NFULNL_CFG_F_SEQ`: This enables local nflog sequence numbering.
     /// * `NFULNL_CFG_F_SEQ_GLOBAL`: This enables global nflog sequence numbering.
     pub fn set_flags(&mut self, flags: Flags) {
-        debug_assert!(!self.handle.is_null());
-
-        unsafe { nflog_set_flags(self.handle, flags.bits()); }
+        unsafe { nflog_set_flags(self.handle.as_ptr(), flags.bits()); }
     }
 
 
     /// Registers the callback triggered when a packet is received
     pub fn set_callback(&mut self, f: Callback) {
-        debug_assert!(!self.handle.is_null());
         // Double box, so the value is a single pointer, not 2 pointers
         let cb_box = Box::new(f);
-        unsafe { nflog_callback_register(self.handle, Some(real_callback), &*cb_box as *const Box<_> as *mut _); };
+        unsafe { nflog_callback_register(self.handle.as_ptr(), Some(real_callback), &*cb_box as *const Box<_> as *mut _); };
         self.callback = Some(cb_box);
     }
 
     pub fn clear_callback(&mut self) {
-        debug_assert!(!self.handle.is_null());
-        unsafe { nflog_callback_register(self.handle, None, ptr::null_mut()); };
+        unsafe { nflog_callback_register(self.handle.as_ptr(), None, ptr::null_mut()); };
         self.callback = None;
     }
 
@@ -218,14 +210,14 @@ impl<'a> Group<'a> {
 
 impl<'a> Drop for Group<'a> {
     fn drop(&mut self) {
-        unsafe { nflog_unbind_group(self.handle); }
+        unsafe { nflog_unbind_group(self.handle.as_ptr()); }
     }
 }
 
 /// Opaque struct `Queue`: abstracts an NFLOG queue
 #[derive(Debug)]
 pub struct Queue {
-    handle: *mut nflog_handle,
+    handle: NonNull<nflog_handle>,
 }
 
 impl Queue {
@@ -241,7 +233,7 @@ impl Queue {
             return Err(io::Error::last_os_error());
         }
         Ok(Queue {
-            handle,
+            handle: unsafe { NonNull::new_unchecked(handle) },
         })
     }
 
@@ -258,9 +250,7 @@ impl Queue {
     ///
     /// **Requires root privileges**
     pub fn bind(&self, protocol_family: libc::c_int) -> io::Result<()> {
-        debug_assert!(!self.handle.is_null());
-
-        let result = unsafe { nflog_bind_pf(self.handle, protocol_family as u16) };
+        let result = unsafe { nflog_bind_pf(self.handle.as_ptr(), protocol_family as u16) };
         if result == 0 {
             Ok(())
         } else {
@@ -281,8 +271,7 @@ impl Queue {
     ///
     /// **Requires root privileges**
     pub fn unbind(&self, protocol_family: libc::c_int) -> io::Result<()> {
-        debug_assert!(!self.handle.is_null());
-        let result = unsafe { nflog_unbind_pf(self.handle, protocol_family as u16) };
+        let result = unsafe { nflog_unbind_pf(self.handle.as_ptr(), protocol_family as u16) };
         if result == 0 {
             Ok(())
         } else {
@@ -296,8 +285,7 @@ impl Queue {
     /// communication over the netlink connection associated with the given log
     /// connection handle.
     pub fn fd(&self) -> RawFd {
-        debug_assert!(!self.handle.is_null());
-        unsafe { nflog_fd(self.handle) }
+        unsafe { nflog_fd(self.handle.as_ptr()) }
     }
 
     ///  Binds a new handle to a specific group number.
@@ -306,14 +294,12 @@ impl Queue {
     ///
     /// * `num` - The number of the group to bind to
     pub fn bind_group(&self, num: u16) -> io::Result<Group> {
-        debug_assert!(!self.handle.is_null());
-
-        let group_handle = unsafe { nflog_bind_group(self.handle, num) };
+        let group_handle = unsafe { nflog_bind_group(self.handle.as_ptr(), num) };
         if group_handle.is_null() {
             return Err(io::Error::last_os_error());
         }
         Ok(Group{
-            handle: group_handle,
+            handle: unsafe { NonNull::new_unchecked(group_handle) },
             group: num,
             callback: None,
             queue_lifetime: PhantomData,
@@ -331,16 +317,14 @@ impl Queue {
             let rc = unsafe { libc::recv(fd,buf_ptr,buf_len,0) };
             if rc < 0 { panic!("error in recv: {:?}", ::std::io::Error::last_os_error()); };
 
-            unsafe { nflog_handle_packet(self.handle, buf_ptr as *mut libc::c_char, rc as libc::c_int) };
+            unsafe { nflog_handle_packet(self.handle.as_ptr(), buf_ptr as *mut libc::c_char, rc as libc::c_int) };
         }
     }
 }
 
 impl Drop for Queue {
     fn drop(&mut self) {
-        debug_assert!(!self.handle.is_null());
-
-        unsafe { nflog_close(self.handle) };
+        unsafe { nflog_close(self.handle.as_ptr()) };
     }
 }
 
@@ -378,7 +362,6 @@ mod tests {
         let q = Queue::open().unwrap();
 
         let raw = q.handle;
-        assert!(!raw.is_null());
         println!("nfq_open: {:p}", raw);
     }
 
@@ -389,8 +372,6 @@ mod tests {
 
         let raw = q.handle;
         println!("nfq_open: {:p}", raw);
-
-        assert!(!q.handle.is_null());
 
         q.bind(libc::AF_INET).unwrap();
     }
