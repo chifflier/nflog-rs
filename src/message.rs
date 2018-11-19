@@ -61,7 +61,7 @@ impl<'a> Message<'a> {
         let len = unsafe { nflog_get_msg_packet_hwhdrlen(self.inner.as_ptr()) };
         let ptr = unsafe { nflog_get_msg_packet_hwhdr(self.inner.as_ptr()) };
         let data: &[u8] = unsafe { std::slice::from_raw_parts(ptr as *const u8, len as usize) };
-        return data;
+        data
     }
 
     /// Returns the layer 3 protocol/EtherType of the packet (i.e. 0x0800 is IPv4)
@@ -161,10 +161,10 @@ impl<'a> Message<'a> {
     pub fn get_payload(&self) -> &'a [u8] {
         let mut c_ptr = std::ptr::null_mut();
         let payload_len = unsafe { nflog_get_payload(self.inner.as_ptr(), &mut c_ptr) };
-        let payload =
+        let payload: &[u8] =
             unsafe { std::slice::from_raw_parts(c_ptr as *const u8, payload_len as usize) };
 
-        return payload;
+        payload
     }
 
     /// Return the log prefix as configured using `--nflog-prefix "..."`

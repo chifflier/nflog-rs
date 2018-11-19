@@ -28,7 +28,7 @@ impl fmt::Display for HwAddr {
                 if !acc.is_empty() {
                     acc.push(':');
                 }
-                write!(acc, "{:02x}", b);
+                write!(acc, "{:02x}", b).expect("write to string should succeed");
                 acc
             });
         out.write_str(&s)

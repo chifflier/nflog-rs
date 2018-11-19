@@ -10,7 +10,7 @@ fn log_callback(msg: nflog::Message) {
         msg.get_uid().unwrap_or(0xffff),
         msg.get_gid().unwrap_or(0xffff)
     );
-    println!(" -> prefix: {}", msg.get_prefix().unwrap());
+    println!(" -> prefix: {}", msg.get_prefix().to_string_lossy());
     println!(" -> seq: {}", msg.get_seq().unwrap_or(0xffff));
 
     let payload_data = msg.get_payload();
