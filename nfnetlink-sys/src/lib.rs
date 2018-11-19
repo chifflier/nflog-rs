@@ -10,12 +10,6 @@
 //! libnetfilter_queue or libnetfilter_conntrack.
 extern crate libc;
 
-use libc::{
-    msghdr,
-    iovec,
-    pid_t,
-    sockaddr_nl,
-    nlmsghdr,
-};
+use libc::{iovec, msghdr, nlmsghdr, pid_t, sockaddr_nl};
 
 include!("bindings.rs");

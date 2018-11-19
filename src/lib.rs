@@ -51,18 +51,17 @@
 //! }
 //! ```
 
-
 extern crate libc;
 extern crate nflog_sys;
 #[macro_use]
 extern crate bitflags;
 
+use std::fmt;
+use std::io;
+use std::marker::PhantomData;
+use std::os::unix::io::RawFd;
 use std::panic;
 use std::ptr::{self, NonNull};
-use std::io;
-use std::fmt;
-use std::os::unix::io::RawFd;
-use std::marker::PhantomData;
 
 mod hwaddr;
 pub use hwaddr::HwAddr;
@@ -133,7 +132,9 @@ impl<'a> Group<'a> {
     /// * `NFULNL_COPY_PACKET` - copy entire packet
     pub fn set_mode(&mut self, mode: CopyMode, range: u32) {
         let c_mode = mode as u8;
-        unsafe { nflog_set_mode(self.handle.as_ptr(), c_mode, range); }
+        unsafe {
+            nflog_set_mode(self.handle.as_ptr(), c_mode, range);
+        }
     }
 
     /// Sets the maximum time to push log buffer for this group
@@ -148,7 +149,9 @@ impl<'a> Group<'a> {
     /// Basically, nflog implements a buffer to reduce the computational cost of
     /// delivering the log message to userspace.
     pub fn set_timeout(&mut self, timeout: u32) {
-        unsafe { nflog_set_timeout(self.handle.as_ptr(), timeout); }
+        unsafe {
+            nflog_set_timeout(self.handle.as_ptr(), timeout);
+        }
     }
 
     /// Sets the maximum amount of logs in buffer for this group
@@ -160,7 +163,9 @@ impl<'a> Group<'a> {
     /// This function determines the maximum number of log entries in the
     /// buffer until it is pushed to userspace.
     pub fn set_qthresh(&mut self, qthresh: u32) {
-        unsafe { nflog_set_qthresh(self.handle.as_ptr(), qthresh); }
+        unsafe {
+            nflog_set_qthresh(self.handle.as_ptr(), qthresh);
+        }
     }
 
     /// Sets the size of the nflog buffer for this group
@@ -172,7 +177,9 @@ impl<'a> Group<'a> {
     /// This function sets the size (in bytes) of the buffer that is used to
     /// stack log messages in nflog.
     pub fn set_nlbufsiz(&mut self, nlbufsiz: u32) {
-        unsafe { nflog_set_nlbufsiz(self.handle.as_ptr(), nlbufsiz); }
+        unsafe {
+            nflog_set_nlbufsiz(self.handle.as_ptr(), nlbufsiz);
+        }
     }
 
     /// Sets the nflog flags for this group
@@ -186,20 +193,29 @@ impl<'a> Group<'a> {
     /// * `NFULNL_CFG_F_SEQ`: This enables local nflog sequence numbering.
     /// * `NFULNL_CFG_F_SEQ_GLOBAL`: This enables global nflog sequence numbering.
     pub fn set_flags(&mut self, flags: Flags) {
-        unsafe { nflog_set_flags(self.handle.as_ptr(), flags.bits()); }
+        unsafe {
+            nflog_set_flags(self.handle.as_ptr(), flags.bits());
+        }
     }
-
 
     /// Registers the callback triggered when a packet is received
     pub fn set_callback(&mut self, f: Callback) {
         // Double box, so the value is a single pointer, not 2 pointers
         let cb_box = Box::new(f);
-        unsafe { nflog_callback_register(self.handle.as_ptr(), Some(real_callback), &*cb_box as *const Box<_> as *mut _); };
+        unsafe {
+            nflog_callback_register(
+                self.handle.as_ptr(),
+                Some(real_callback),
+                &*cb_box as *const Box<_> as *mut _,
+            );
+        };
         self.callback = Some(cb_box);
     }
 
     pub fn clear_callback(&mut self) {
-        unsafe { nflog_callback_register(self.handle.as_ptr(), None, ptr::null_mut()); };
+        unsafe {
+            nflog_callback_register(self.handle.as_ptr(), None, ptr::null_mut());
+        };
         self.callback = None;
     }
 
@@ -210,7 +226,9 @@ impl<'a> Group<'a> {
 
 impl<'a> Drop for Group<'a> {
     fn drop(&mut self) {
-        unsafe { nflog_unbind_group(self.handle.as_ptr()); }
+        unsafe {
+            nflog_unbind_group(self.handle.as_ptr());
+        }
     }
 }
 
@@ -298,7 +316,7 @@ impl Queue {
         if group_handle.is_null() {
             return Err(io::Error::last_os_error());
         }
-        Ok(Group{
+        Ok(Group {
             handle: unsafe { NonNull::new_unchecked(group_handle) },
             group: num,
             callback: None,
@@ -314,10 +332,18 @@ impl Queue {
         let buf_len = buf.len() as libc::size_t;
 
         loop {
-            let rc = unsafe { libc::recv(fd,buf_ptr,buf_len,0) };
-            if rc < 0 { panic!("error in recv: {:?}", ::std::io::Error::last_os_error()); };
+            let rc = unsafe { libc::recv(fd, buf_ptr, buf_len, 0) };
+            if rc < 0 {
+                panic!("error in recv: {:?}", ::std::io::Error::last_os_error());
+            };
 
-            unsafe { nflog_handle_packet(self.handle.as_ptr(), buf_ptr as *mut libc::c_char, rc as libc::c_int) };
+            unsafe {
+                nflog_handle_packet(
+                    self.handle.as_ptr(),
+                    buf_ptr as *mut libc::c_char,
+                    rc as libc::c_int,
+                )
+            };
         }
     }
 }
@@ -332,7 +358,7 @@ extern "C" fn real_callback(
     _gh: *mut nflog_g_handle,
     _nfmsg: *mut nfgenmsg,
     nfd: *mut nflog_data,
-    data: *mut std::os::raw::c_void
+    data: *mut std::os::raw::c_void,
 ) -> libc::c_int {
     if data.is_null() {
         return 1;
@@ -350,8 +376,6 @@ extern "C" fn real_callback(
         Err(_) => 1,
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {

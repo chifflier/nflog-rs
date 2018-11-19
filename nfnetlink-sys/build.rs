@@ -1,5 +1,5 @@
-extern crate pkg_config;
 extern crate cc;
+extern crate pkg_config;
 
 use std::env;
 use std::fs;
@@ -19,7 +19,8 @@ fn main() {
     }
 
     if !Path::new("src/libnfnetlink/.git").exists() {
-        let _ = Command::new("git").args(&["submodule", "update", "--init"])
+        let _ = Command::new("git")
+            .args(&["submodule", "update", "--init"])
             .status();
     }
 
@@ -31,9 +32,18 @@ fn main() {
     println!("cargo:include={}", include.display());
     println!("cargo:static=1");
     fs::create_dir_all(include.join("libnfnetlink")).unwrap();
-    fs::copy("src/libnfnetlink/include/libnfnetlink/libnfnetlink.h", include.join("libnfnetlink/libnfnetlink.h")).unwrap();
-    fs::copy("src/libnfnetlink/include/libnfnetlink/linux_nfnetlink.h", include.join("libnfnetlink/linux_nfnetlink.h")).unwrap();
-    fs::copy("src/libnfnetlink/include/libnfnetlink/linux_nfnetlink_compat.h", include.join("libnfnetlink/linux_nfnetlink_compat.h")).unwrap();
+    fs::copy(
+        "src/libnfnetlink/include/libnfnetlink/libnfnetlink.h",
+        include.join("libnfnetlink/libnfnetlink.h"),
+    ).unwrap();
+    fs::copy(
+        "src/libnfnetlink/include/libnfnetlink/linux_nfnetlink.h",
+        include.join("libnfnetlink/linux_nfnetlink.h"),
+    ).unwrap();
+    fs::copy(
+        "src/libnfnetlink/include/libnfnetlink/linux_nfnetlink_compat.h",
+        include.join("libnfnetlink/linux_nfnetlink_compat.h"),
+    ).unwrap();
 
     let mut cfg = cc::Build::new();
     cfg.out_dir(&build)

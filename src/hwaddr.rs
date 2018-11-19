@@ -22,19 +22,15 @@ impl fmt::Display for HwAddr {
         }
         // Two digits per byte, and 1 less colon than number of bytes
         let size = len * 2 + (len - 1);
-        let s = self.inner[..len].iter().fold(
-            String::with_capacity(size),
-            |mut acc, &b| {
+        let s = self.inner[..len]
+            .iter()
+            .fold(String::with_capacity(size), |mut acc, &b| {
                 if !acc.is_empty() {
                     acc.push(':');
                 }
                 write!(acc, "{:02x}", b);
                 acc
-            }
-        );
+            });
         out.write_str(&s)
     }
 }
-
-
-

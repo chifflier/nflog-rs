@@ -1,11 +1,15 @@
-extern crate nflog;
 extern crate libc;
+extern crate nflog;
 
 use std::fmt::Write;
 
 fn log_callback(msg: nflog::Message) {
     println!("Packet received\n");
-    println!(" -> uid: {}, gid: {}", msg.get_uid().unwrap_or(0xffff), msg.get_gid().unwrap_or(0xffff));
+    println!(
+        " -> uid: {}, gid: {}",
+        msg.get_uid().unwrap_or(0xffff),
+        msg.get_gid().unwrap_or(0xffff)
+    );
     println!(" -> prefix: {}", msg.get_prefix().unwrap());
     println!(" -> seq: {}", msg.get_seq().unwrap_or(0xffff));
 

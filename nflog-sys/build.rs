@@ -1,5 +1,5 @@
-extern crate pkg_config;
 extern crate cc;
+extern crate pkg_config;
 
 use std::env;
 use std::fs;
@@ -19,7 +19,8 @@ fn main() {
     }
 
     if !Path::new("src/libnetfilter_log/.git").exists() {
-        let _ = Command::new("git").args(&["submodule", "update", "--init"])
+        let _ = Command::new("git")
+            .args(&["submodule", "update", "--init"])
             .status();
     }
 
@@ -31,8 +32,14 @@ fn main() {
     println!("cargo:include={}", include.display());
     println!("cargo:static=1");
     fs::create_dir_all(include.join("libnetfilter_log")).unwrap();
-    fs::copy("src/libnetfilter_log/include/libnetfilter_log/libnetfilter_log.h", include.join("libnetfilter_log/libnetfilter_log.h")).unwrap();
-    fs::copy("src/libnetfilter_log/include/libnetfilter_log/linux_nfnetlink_log.h", include.join("libnetfilter_log/linux_nfnetlink_log.h")).unwrap();
+    fs::copy(
+        "src/libnetfilter_log/include/libnetfilter_log/libnetfilter_log.h",
+        include.join("libnetfilter_log/libnetfilter_log.h"),
+    ).unwrap();
+    fs::copy(
+        "src/libnetfilter_log/include/libnetfilter_log/linux_nfnetlink_log.h",
+        include.join("libnetfilter_log/linux_nfnetlink_log.h"),
+    ).unwrap();
 
     let mut cfg = cc::Build::new();
     cfg.out_dir(&build)

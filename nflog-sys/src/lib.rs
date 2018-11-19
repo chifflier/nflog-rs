@@ -2,8 +2,6 @@
 extern crate libc;
 extern crate nfnetlink_sys;
 
-use libc::{
-    timeval,
-};
+use libc::timeval;
 
 include!("bindings.rs");
