@@ -21,7 +21,7 @@
 //!     println!(" -> msg: {:?}", msg);
 //!     // this will send an error if there is no uid (for ex. incoming packets)
 //!     println!(" -> uid: {}, gid: {}", msg.get_uid().unwrap(), msg.get_gid().unwrap());
-//!     println!(" -> prefix: {}", msg.get_prefix().unwrap());
+//!     println!(" -> prefix: {}", msg.get_prefix().to_string_lossy());
 //!     println!(" -> seq: {}", msg.get_seq().unwrap_or(0xffff));
 //!
 //!     let payload_data = msg.get_payload();
