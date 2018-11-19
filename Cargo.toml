@@ -1,13 +1,13 @@
 [package]
-description = " Netfilter NFLOG high-level bindings"
+name = "nflog"
+description = "Netfilter NFLOG high-level bindings"
+version = "0.10.0"
 license = "GPL-2.0+"
-keywords = ["netfilter","log","nflog"]
+keywords = ["netfilter", "log", "nflog"]
 homepage = "https://github.com/chifflier/nflog-rs"
 repository = "https://github.com/chifflier/nflog-rs.git"
 
-name = "nflog"
-version = "0.9.0"
-authors = [ "Pierre Chifflier <chifflier@wzdftpd.net>", "Zachary Dremann <dremann@gmail.com" ]
+authors = ["Pierre Chifflier <chifflier@wzdftpd.net>", "Zachary Dremann <dremann@gmail.com"]
 
 [dependencies]
 libc = "0.2"

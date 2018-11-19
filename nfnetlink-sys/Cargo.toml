@@ -1,9 +1,16 @@
 [package]
 name = "nfnetlink-sys"
-version = "0.1.0"
-authors = ["Zachary Dremann <dremann@gmail.com>"]
-links = "nfnetlink"
+description = "libnfnetlink low-level ffi bindings"
+version = "0.10.0"
+license = "GPL-2.0+"
 categories = ["external-ffi-bindings"]
+keywords = ["netfilter", "netlink"]
+homepage = "https://github.com/chifflier/nflog-rs"
+repository = "https://github.com/chifflier/nflog-rs.git"
+
+authors = ["Pierre Chifflier <chifflier@wzdftpd.net>", "Zachary Dremann <dremann@gmail.com"]
+
+links = "nfnetlink"
 
 [dependencies]
 libc = "0.2.43"
