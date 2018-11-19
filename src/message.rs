@@ -4,6 +4,7 @@ use nflog_sys::*;
 
 use hwaddr::*;
 use std;
+use std::ffi::CStr;
 use std::ptr::NonNull;
 use std::time;
 use std::marker::PhantomData;
@@ -167,13 +168,9 @@ impl<'a> Message<'a> {
 
     /// Return the log prefix as configured using `--nflog-prefix "..."`
     /// in iptables rules.
-    pub fn get_prefix(&self) -> Result<String,std::str::Utf8Error> {
+    pub fn get_prefix(&self) -> &CStr {
         let c_buf: *const libc::c_char = unsafe { nflog_get_prefix(self.inner.as_ptr()) };
-        let c_str = unsafe { std::ffi::CStr::from_ptr(c_buf) };
-        match c_str.to_str() {
-            Err(e) => Err(e),
-            Ok(v)  => Ok(v.to_string()),
-        }
+        unsafe { CStr::from_ptr(c_buf) }
     }
 
     /// Available only for outgoing packets
