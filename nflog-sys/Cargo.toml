@@ -1,18 +1,25 @@
 [package]
-name = "nflog"
-description = "Netfilter NFLOG high-level bindings"
+name = "nflog-sys"
+description = "libnfnetlink low-level ffi bindings"
 version = "0.10.0"
 license = "GPL-2.0+"
+categories = ["external-ffi-bindings"]
 keywords = ["netfilter", "log", "nflog"]
 homepage = "https://github.com/chifflier/nflog-rs"
 repository = "https://github.com/chifflier/nflog-rs.git"
 
 authors = ["Pierre Chifflier <chifflier@wzdftpd.net>", "Zachary Dremann <dremann@gmail.com"]
 
-[dependencies]
-libc = "0.2"
-nflog-sys = { path = "nflog-sys" }
-bitflags = "1.0"
+links = "netfilter_log"
 
-[workspace]
-members = ["nflog-sys", "nfnetlink-sys"]
+[dependencies]
+libc = "0.2.43"
+nfnetlink-sys = { path = "../nfnetlink-sys" }
+
+[build-dependencies]
+cc = "1.0"
+pkg-config = "0.3"
+
+[features]
+default = []
+static-nflog = []
